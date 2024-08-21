@@ -35,15 +35,20 @@ typedef struct Recipe Recipe;
 typedef struct RecipeHT RecipeHT;
 
 RecipeIngredient *create_recipe_ingredient(char *, int);
-Recipe *create_recipe(char *);
-RecipeHT *create_recipe_ht(int);
+void free_recipe_ingredient(RecipeIngredient *);
 
+Recipe *create_recipe(char *);
+void free_recipe(Recipe *);
 void recipe_add_ingredient(Recipe *, RecipeIngredient *);
+
+RecipeHT *create_recipe_ht(int);
+void free_recipe_ht(RecipeHT *);
 void add_recipe(RecipeHT *, char *);
-Recipe *recipe_ht_get(RecipeHT *, char *);
 void recipe_ht_put(RecipeHT *, Recipe *);
+Recipe *recipe_ht_get(RecipeHT *, char *);
 double recipe_ht_load_factor(RecipeHT *);
 void recipe_ht_resize(RecipeHT *);
+
 // ==================================================
 
 // UTIL IMPLEMENTATION ==============================
@@ -139,6 +144,14 @@ RecipeIngredient *create_recipe_ingredient(char *name, int quantity) {
   return ingredient;
 }
 
+void free_recipe_ingredient(RecipeIngredient *ingredient) {
+  while (ingredient != NULL) {
+    RecipeIngredient *next = ingredient->next;
+    free(ingredient);
+    ingredient = next;
+  }
+}
+
 Recipe *create_recipe(char *name) {
   Recipe *recipe = (Recipe *)malloc(sizeof(Recipe));
   if (recipe == NULL) {
@@ -155,6 +168,11 @@ Recipe *create_recipe(char *name) {
   return recipe;
 }
 
+void free_recipe(Recipe *recipe) {
+  free_recipe_ingredient(recipe->ingredients);
+  free(recipe);
+}
+
 RecipeHT *create_recipe_ht(int size) {
   RecipeHT *ht = (RecipeHT *)malloc(sizeof(RecipeHT));
   if (ht == NULL) {
@@ -165,15 +183,29 @@ RecipeHT *create_recipe_ht(int size) {
   ht->n_elements = 0;
   ht->size = size;
   ht->recipes = (Recipe **)malloc(size * sizeof(Recipe *));
-  for (int i = 0; i < size; i++) {
-      ht->recipes[i] = NULL;
-  }
   if (ht->recipes == NULL) {
     printf("Error while allocating RecipeHT recipes\n");
     return NULL;
   }
+  for (int i = 0; i < size; i++) {
+    ht->recipes[i] = NULL;
+  }
 
   return ht;
+}
+
+void free_recipe_ht(RecipeHT *ht) {
+  for (int i = 0; i < ht->size; i++) {
+    Recipe *recipe = ht->recipes[i];
+    while (recipe != NULL) {
+      Recipe *next = recipe->next;
+      free_recipe(recipe);
+      recipe = next;
+    }
+  }
+
+  free(ht->recipes);
+  free(ht);
 }
 
 void add_recipe(RecipeHT *ht, char *line) {
@@ -304,22 +336,22 @@ int main(void) {
 
   while ((line = read_line(stdin)) != NULL) {
     if (CURR_TIME != 0 && TRUCK_TIME != 0 && CURR_TIME % TRUCK_TIME == 0) {
-      printf("HANDLE TRUCK\n");
+      printf("DEBUG: HANDLE TRUCK\n");
     }
 
     if (sscanf(line, "%s", command) == 1) {
       if (strcmp(command, "aggiungi_ricetta") == 0) {
+        printf("DEBUG: %s\n", line);
         add_recipe(ht, line);
-        printf("%s\n", line);
         increase_curr_time();
       } else if (strcmp(command, "rimuovi_ricetta") == 0) {
-        printf("%s\n", line);
+        printf("DEBUG: %s\n", line);
         increase_curr_time();
       } else if (strcmp(command, "rifornimento") == 0) {
-        printf("%s\n", line);
+        printf("DEBUG: %s\n", line);
         increase_curr_time();
       } else if (strcmp(command, "ordine") == 0) {
-        printf("%s\n", line);
+        printf("DEBUG: %s\n", line);
         increase_curr_time();
       } else {
         handle_truck(line);
@@ -328,4 +360,6 @@ int main(void) {
 
     free(line);
   }
+
+  free_recipe_ht(ht);
 }
