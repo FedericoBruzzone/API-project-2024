@@ -1,3 +1,11 @@
+// TODO:
+// 1. `stock_add_ingredient` should add the ingredient in the right position (by
+// expiration date)
+//
+// 2. `send_order` should remove from stock all the expired ingredients of this
+// stock. Increment the head until reach the CURR_TIME
+
+#include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -18,7 +26,16 @@ static int TRUCK_WEIGHT = 0;
 // END GLOBAL VARIABLES =============================
 
 // TRUCK ================================
-void set_truck_time(int);
+typedef struct TruckNode TruckNode;
+TruckNode *create_truck_node(char *);
+void free_truck_node(TruckNode *);
+
+typedef struct TruckQueue TruckQueue;
+TruckQueue *create_truck_queue();
+void free_truck_queue(TruckQueue *);
+
+void set_truck_time(int); // TODO: Try to remove here all the expiring
+                          // ingredients, and see the performance
 void set_truck_weight(int);
 void handle_truck(char *);
 // END TRUCK ============================
@@ -67,6 +84,24 @@ void stock_ht_resize(StockHT *);
 Stock *stock_get_or_create(StockHT *, char *);
 // END STOCK ============================
 
+// ORDER ===============================
+typedef struct Order Order;
+Order *create_order(Recipe *, int, int);
+void free_order(Order *);
+
+typedef struct WaitingNode WaitingNode;
+WaitingNode *create_waiting_node(Order *, Stock **, int);
+void free_waiting_node(WaitingNode *);
+
+typedef struct WaitingQueue WaitingQueue;
+WaitingQueue *create_waiting_queue();
+void free_waiting_queue(WaitingQueue *);
+void waiting_queue_enqueue(WaitingQueue *, WaitingNode *);
+
+void send_order(RecipeHT *, StockHT *, WaitingQueue *, TruckQueue *, Order *,
+                bool);
+// END ORDER ===========================
+
 // UTIL =================================
 uint32_t hash_string(char *, int);
 void increase_curr_time();
@@ -75,6 +110,7 @@ char *read_line(FILE *);
 void add_recipe(RecipeHT *, char *);
 void remove_recipe(RecipeHT *, char *);
 void handle_stock(StockHT *, char *);
+void handle_order(RecipeHT *, StockHT *, WaitingQueue *, TruckQueue *, char *);
 // END UTIL =============================
 
 // RECIPE IMPLEMENTATION ============================
@@ -470,6 +506,142 @@ void handle_truck(char *line) {
 }
 // END TRUCK IMPLEMENTATION =========================
 
+// Per ogni ordine in sospeso mi tengo solo gli ingredienti che hanno reso
+// questo ordine non soddisfacibile
+
+// ORDER IMPLEMENTATION ===============================
+struct Order {
+  Recipe *recipe;
+  int amount;
+  int arrival_time;
+  int total_quantity;
+};
+
+Order *create_order(Recipe *recipe, int amount, int arrival_time) {
+  Order *order = (Order *)malloc(sizeof(Order));
+  if (order == NULL) {
+    printf("Error while allocating Order\n");
+    return NULL;
+  }
+
+  order->recipe = recipe;
+  order->amount = amount;
+  order->arrival_time = arrival_time;
+  order->total_quantity = recipe->weight * amount;
+
+  return order;
+}
+
+void free_order(Order *order) {
+  // Trivially, we don't need to free the recipe because it's a reference
+  free(order);
+}
+
+struct WaitingNode {
+  Order *order;
+  Stock **missing_ingredients;
+  int n_missing_ingredients;
+  WaitingNode *next;
+};
+
+WaitingNode *create_waiting_node(Order *order, Stock **missing_ingredients,
+                                 int n_missing_ingredients) {
+  WaitingNode *node = (WaitingNode *)malloc(sizeof(WaitingNode));
+  if (node == NULL) {
+    printf("Error while allocating WaitingNode\n");
+    return NULL;
+  }
+
+  node->order = order;
+  node->missing_ingredients = missing_ingredients;
+  node->n_missing_ingredients = n_missing_ingredients;
+  node->next = NULL;
+
+  return node;
+}
+void free_waiting_node(WaitingNode *node) {
+  free_order(node->order);
+  free(node);
+}
+
+struct WaitingQueue {
+  WaitingNode *head;
+  WaitingNode *tail;
+};
+
+WaitingQueue *create_waiting_queue() {
+  WaitingQueue *queue = (WaitingQueue *)malloc(sizeof(WaitingQueue));
+  if (queue == NULL) {
+    printf("Error while allocating WaitingQueue\n");
+    return NULL;
+  }
+
+  queue->head = NULL;
+  queue->tail = NULL;
+  return queue;
+}
+
+void free_waiting_queue(WaitingQueue *queue) {
+  WaitingNode *node = queue->head;
+  while (node != NULL) {
+    WaitingNode *next = node->next;
+    free_waiting_node(node);
+    node = next;
+  }
+  free(queue);
+}
+
+void waiting_queue_enqueue(WaitingQueue *queue, WaitingNode *node) {
+  if (queue->tail == NULL) {
+    queue->head = node;
+    queue->tail = node;
+    return;
+  }
+
+  queue->tail->next = node;
+  queue->tail = node;
+}
+
+void send_order(
+    RecipeHT *recipe_ht, StockHT *stock_ht, WaitingQueue *waiting_queue,
+    TruckQueue *truck_queue, Order *order,
+    bool is_waiting_order) { // TODO: Consider to return a boolean value
+  Stock **missing_ingredients =
+      (Stock **)malloc(order->recipe->n_ingredients * sizeof(Stock *));
+  if (missing_ingredients == NULL) {
+    printf("Error while allocating missing ingredients\n");
+    return;
+  }
+
+  // Check if all ingredients are available
+  RecipeIngredient *ingredient = order->recipe->ingredients;
+  int n_missing_ingredients = 0;
+  while (ingredient != NULL) {
+    Stock *stock = stock_ht_get(stock_ht, ingredient->name);
+    // if (stock != NULL) {
+    // TODO: Remove all expired ingredients of this stock
+    // }
+    if (stock == NULL || order->total_quantity > stock->total_quantity) {
+      missing_ingredients[n_missing_ingredients++] = stock;
+    }
+    ingredient = ingredient->next;
+  }
+
+  if (n_missing_ingredients == 0) {
+    // TODO: Remove from stock all the ingredients that are needed
+
+    // If the order was arrived from the waiting queue, we should enqueue the
+    // order in the truck queue in the right position (by arrival time) (O(n))
+
+    // Otherwise, we should enqueue the order in the truck queue at the end
+    // (O(1))
+    return;
+  }
+
+  // If not from the waiting queue, we should enqueue the order in the waiting
+}
+// END ORDER IMPLEMENTATION ===========================
+
 // UTIL IMPLEMENTATION ==============================
 uint32_t hash_string(char *str, int size) {
   unsigned long hash = 2166136261UL;
@@ -610,11 +782,46 @@ void handle_stock(StockHT *stock_ht, char *line) {
     stock_add_ingredient(stock, ingredient);
   }
 }
+
+void handle_order(RecipeHT *recipe_ht, StockHT *stock_ht,
+                  WaitingQueue *waiting_queue, TruckQueue *truck_queue,
+                  char *line) {
+  char *command = strtok(line, " ");
+  if (command == NULL) {
+    printf("Error while parsing command\n");
+    return;
+  }
+
+  char *recipe_name = strtok(NULL, " ");
+  if (recipe_name == NULL) {
+    printf("Error while parsing recipe name\n");
+    return;
+  }
+
+  char *amount_str = strtok(NULL, " ");
+  if (amount_str == NULL) {
+    printf("Error while parsing order amount\n");
+    return;
+  }
+  int amount = atoi(amount_str);
+
+  Recipe *recipe = recipe_ht_get(recipe_ht, recipe_name);
+  if (recipe == NULL) {
+    printf("rifiutato\n");
+    return;
+  }
+  printf("accettato\n");
+
+  Order *order = create_order(recipe, amount, CURR_TIME);
+  send_order(recipe_ht, stock_ht, waiting_queue, truck_queue, order, false);
+}
 // END UTIL IMPLEMENTATION ==========================
 
 int main(void) {
   RecipeHT *recipe_ht = create_recipe_ht(HT_INIT_SIZE);
   StockHT *stock_ht = create_stock_ht(HT_INIT_SIZE);
+  WaitingQueue *waiting_queue = create_waiting_queue();
+  TruckQueue *truck_queue = create_truck_queue();
 
   char command[COMMAND_LEN];
   char *line;
@@ -649,6 +856,7 @@ int main(void) {
 #ifdef DEBUG
         printf("DEBUG: %s\n", line);
 #endif /* ifdef DEBUG */
+        handle_order(recipe_ht, stock_ht, waiting_queue, truck_queue, line);
         increase_curr_time();
       } else {
         handle_truck(line);
@@ -660,4 +868,5 @@ int main(void) {
 
   free_recipe_ht(recipe_ht);
   free_stock_ht(stock_ht);
+  free_waiting_queue(waiting_queue);
 }
