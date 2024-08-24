@@ -1,10 +1,3 @@
-// TODO:
-// 1. `stock_add_ingredient` should add the ingredient in the right position (by
-// expiration date)
-//
-// 2. `send_order` should remove from stock all the expired ingredients of this
-// stock. Increment the head until reach the CURR_TIME
-
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -24,21 +17,6 @@ static int CURR_TIME = 0;
 static int TRUCK_TIME = 0;
 static int TRUCK_WEIGHT = 0;
 // END GLOBAL VARIABLES =============================
-
-// TRUCK ================================
-typedef struct TruckNode TruckNode;
-TruckNode *create_truck_node(char *);
-void free_truck_node(TruckNode *);
-
-typedef struct TruckQueue TruckQueue;
-TruckQueue *create_truck_queue();
-void free_truck_queue(TruckQueue *);
-
-void set_truck_time(int); // TODO: Try to remove here all the expiring
-                          // ingredients, and see the performance
-void set_truck_weight(int);
-void handle_truck(char *);
-// END TRUCK ============================
 
 // RECIPE ===============================
 typedef struct RecipeIngredient RecipeIngredient;
@@ -72,6 +50,8 @@ void free_stock_ingredient(StockIngredient *);
 Stock *create_stock(char *);
 void free_stock(Stock *);
 void stock_add_ingredient(Stock *, StockIngredient *);
+void stock_remove_expired_ingredients(Stock *, int);
+void stock_remove_ingredient(Stock *, int);
 
 StockHT *create_stock_ht(int);
 void free_stock_ht(StockHT *);
@@ -97,10 +77,24 @@ typedef struct WaitingQueue WaitingQueue;
 WaitingQueue *create_waiting_queue();
 void free_waiting_queue(WaitingQueue *);
 void waiting_queue_enqueue(WaitingQueue *, WaitingNode *);
-
-void send_order(RecipeHT *, StockHT *, WaitingQueue *, TruckQueue *, Order *,
-                bool);
 // END ORDER ===========================
+
+// TRUCK ================================
+typedef struct TruckNode TruckNode;
+TruckNode *create_truck_node(Order *);
+void free_truck_node(TruckNode *);
+
+typedef struct TruckQueue TruckQueue;
+TruckQueue *create_truck_queue();
+void free_truck_queue(TruckQueue *);
+void truck_queue_enqueue(TruckQueue *, TruckNode *);
+
+void set_truck_time(int); // TODO: Try to remove here all the expiring
+                          // ingredients, and see the performance
+void set_truck_weight(int);
+
+void truck_queue_dequeue(TruckQueue *);
+// END TRUCK ============================
 
 // UTIL =================================
 uint32_t hash_string(char *, int);
@@ -111,6 +105,11 @@ void add_recipe(RecipeHT *, char *);
 void remove_recipe(RecipeHT *, char *);
 void handle_stock(StockHT *, char *);
 void handle_order(RecipeHT *, StockHT *, WaitingQueue *, TruckQueue *, char *);
+void handle_truck(char *);
+
+void send_order(RecipeHT *, StockHT *, WaitingQueue *, TruckQueue *, Order *,
+                bool);
+void print_stock_ingredients(Stock *);
 // END UTIL =============================
 
 // RECIPE IMPLEMENTATION ============================
@@ -355,10 +354,38 @@ void free_stock_ingredient(StockIngredient *ingredient) {
 
 void stock_add_ingredient(Stock *stock, StockIngredient *ingredient) {
   stock->total_quantity += ingredient->quantity;
+
+  if (stock->ingredients == NULL) {
+    stock->ingredients = ingredient;
+    ingredient->next = NULL;
+    stock->n_ingredients++;
+    return;
+  }
+
+  StockIngredient *curr_ingredient = stock->ingredients;
+  StockIngredient *prev_ingredient = NULL;
+  while (curr_ingredient != NULL &&
+         curr_ingredient->expiration_date < ingredient->expiration_date) {
+    prev_ingredient = curr_ingredient;
+    curr_ingredient = curr_ingredient->next;
+  }
+
+  if (prev_ingredient == NULL) {
+    ingredient->next = stock->ingredients;
+    stock->ingredients = ingredient;
+    stock->n_ingredients++;
+    return;
+  }
+  if (curr_ingredient != NULL &&
+      curr_ingredient->expiration_date == ingredient->expiration_date) {
+    curr_ingredient->quantity += ingredient->quantity;
+    free(ingredient);
+    return;
+  }
+
+  prev_ingredient->next = ingredient;
+  ingredient->next = curr_ingredient;
   stock->n_ingredients++;
-  ingredient->next =
-      stock->ingredients; // TODO: Consider to add in expiration date order
-  stock->ingredients = ingredient;
 }
 
 Stock *create_stock(char *name) {
@@ -375,6 +402,52 @@ Stock *create_stock(char *name) {
   stock->next = NULL;
 
   return stock;
+}
+
+void stock_remove_expired_ingredients(Stock *stock, int curr_time) {
+  StockIngredient *curr_ingredient = stock->ingredients;
+  StockIngredient *prev_ingredient = NULL;
+  while (curr_ingredient != NULL &&
+         curr_ingredient->expiration_date < curr_time) {
+    StockIngredient *next = curr_ingredient->next;
+    stock->total_quantity -= curr_ingredient->quantity;
+    free(curr_ingredient);
+    stock->n_ingredients--;
+    curr_ingredient = next;
+  }
+
+  if (prev_ingredient == NULL) {
+    stock->ingredients = curr_ingredient;
+    return;
+  }
+
+  prev_ingredient->next = curr_ingredient;
+}
+
+void stock_remove_ingredient(Stock *stock, int quantity) {
+  StockIngredient *curr_ingredient = stock->ingredients;
+  StockIngredient *prev_ingredient = NULL;
+  while (curr_ingredient != NULL && quantity > 0) {
+    if (curr_ingredient->quantity > quantity) {
+      curr_ingredient->quantity -= quantity;
+      stock->total_quantity -= quantity;
+      return;
+    }
+
+    quantity -= curr_ingredient->quantity;
+    stock->total_quantity -= curr_ingredient->quantity;
+    StockIngredient *next = curr_ingredient->next;
+    free(curr_ingredient);
+    stock->n_ingredients--;
+    curr_ingredient = next;
+  }
+
+  if (prev_ingredient == NULL) {
+    stock->ingredients = curr_ingredient;
+    return;
+  }
+
+  prev_ingredient->next = curr_ingredient;
 }
 
 void free_stock(Stock *stock) {
@@ -484,37 +557,14 @@ Stock *stock_get_or_create(StockHT *ht, char *name) {
   }
   return stock;
 }
-
 // END STOCK IMPLEMENTATION ========================
-
-// TRUCK IMPLEMENTATION ==============================
-void set_truck_time(int time) { TRUCK_TIME = time; }
-void set_truck_weight(int weight) { TRUCK_WEIGHT = weight; }
-void handle_truck(char *line) {
-  char *time = strtok(line, " ");
-  if (time == NULL) {
-    printf("Error while parsing truck time\n");
-    return;
-  }
-  char *weight = strtok(NULL, " ");
-  if (weight == NULL) {
-    printf("Error while parsing truck weight\n");
-    return;
-  }
-  set_truck_time(atoi(time));
-  set_truck_weight(atoi(weight));
-}
-// END TRUCK IMPLEMENTATION =========================
-
-// Per ogni ordine in sospeso mi tengo solo gli ingredienti che hanno reso
-// questo ordine non soddisfacibile
 
 // ORDER IMPLEMENTATION ===============================
 struct Order {
   Recipe *recipe;
-  int amount;
+  int amount; // Number of orders
   int arrival_time;
-  int total_quantity;
+  int total_weight;
 };
 
 Order *create_order(Recipe *recipe, int amount, int arrival_time) {
@@ -527,7 +577,7 @@ Order *create_order(Recipe *recipe, int amount, int arrival_time) {
   order->recipe = recipe;
   order->amount = amount;
   order->arrival_time = arrival_time;
-  order->total_quantity = recipe->weight * amount;
+  order->total_weight = recipe->weight * amount;
 
   return order;
 }
@@ -601,46 +651,100 @@ void waiting_queue_enqueue(WaitingQueue *queue, WaitingNode *node) {
   queue->tail->next = node;
   queue->tail = node;
 }
-
-void send_order(
-    RecipeHT *recipe_ht, StockHT *stock_ht, WaitingQueue *waiting_queue,
-    TruckQueue *truck_queue, Order *order,
-    bool is_waiting_order) { // TODO: Consider to return a boolean value
-  Stock **missing_ingredients =
-      (Stock **)malloc(order->recipe->n_ingredients * sizeof(Stock *));
-  if (missing_ingredients == NULL) {
-    printf("Error while allocating missing ingredients\n");
-    return;
-  }
-
-  // Check if all ingredients are available
-  RecipeIngredient *ingredient = order->recipe->ingredients;
-  int n_missing_ingredients = 0;
-  while (ingredient != NULL) {
-    Stock *stock = stock_ht_get(stock_ht, ingredient->name);
-    // if (stock != NULL) {
-    // TODO: Remove all expired ingredients of this stock
-    // }
-    if (stock == NULL || order->total_quantity > stock->total_quantity) {
-      missing_ingredients[n_missing_ingredients++] = stock;
-    }
-    ingredient = ingredient->next;
-  }
-
-  if (n_missing_ingredients == 0) {
-    // TODO: Remove from stock all the ingredients that are needed
-
-    // If the order was arrived from the waiting queue, we should enqueue the
-    // order in the truck queue in the right position (by arrival time) (O(n))
-
-    // Otherwise, we should enqueue the order in the truck queue at the end
-    // (O(1))
-    return;
-  }
-
-  // If not from the waiting queue, we should enqueue the order in the waiting
-}
 // END ORDER IMPLEMENTATION ===========================
+
+// TRUCK IMPLEMENTATION ==============================
+struct TruckNode {
+  Order *order;
+  TruckNode *next;
+};
+
+TruckNode *create_truck_node(Order *order) {
+  TruckNode *node = (TruckNode *)malloc(sizeof(TruckNode));
+  if (node == NULL) {
+    printf("Error while allocating TruckNode\n");
+    return NULL;
+  }
+
+  node->order = order;
+  node->next = NULL;
+
+  return node;
+}
+void free_truck_node(TruckNode *node) {
+  free_order(node->order);
+  free(node);
+}
+
+struct TruckQueue {
+  TruckNode *head;
+  TruckNode *tail;
+};
+
+TruckQueue *create_truck_queue() {
+  TruckQueue *queue = (TruckQueue *)malloc(sizeof(TruckQueue));
+  if (queue == NULL) {
+    printf("Error while allocating TruckQueue\n");
+    return NULL;
+  }
+
+  queue->head = NULL;
+  queue->tail = NULL;
+  return queue;
+}
+
+void free_truck_queue(TruckQueue *queue) {
+  TruckNode *node = queue->head;
+  while (node != NULL) {
+    TruckNode *next = node->next;
+    free_truck_node(node);
+    node = next;
+  }
+  free(queue);
+}
+
+void truck_queue_enqueue(TruckQueue *queue, TruckNode *node) {
+  if (queue->tail == NULL) {
+    queue->head = node;
+    queue->tail = node;
+    return;
+  }
+
+  queue->tail->next = node;
+  queue->tail = node;
+}
+
+void truck_queue_dequeue(TruckQueue *queue) {
+  if (queue->head == NULL) {
+    printf("camioncino vuoto\n");
+    return;
+  }
+
+  // Remove order from the list until the truck is full (TRUCK_WEIGHT)
+  TruckNode *node = queue->head;
+  int tmp_weight = 0;
+  int n_orders = 0;
+  while (node != NULL &&
+         tmp_weight + node->order->total_weight <= TRUCK_WEIGHT) {
+    tmp_weight += node->order->total_weight;
+    n_orders++;
+    TruckNode *next = node->next;
+    // TODO: HERE
+    print_tmp();
+    free_truck_node(node);
+    node = next;
+  }
+
+  if (n_orders == 0) {
+    printf("camioncino vuoto\n");
+    return;
+  }
+}
+
+void set_truck_time(int time) { TRUCK_TIME = time; }
+
+void set_truck_weight(int weight) { TRUCK_WEIGHT = weight; }
+// END TRUCK IMPLEMENTATION =========================
 
 // UTIL IMPLEMENTATION ==============================
 uint32_t hash_string(char *str, int size) {
@@ -780,6 +884,75 @@ void handle_stock(StockHT *stock_ht, char *line) {
       return;
     }
     stock_add_ingredient(stock, ingredient);
+
+#ifdef DEBUG
+    print_stock_ingredients(stock);
+#endif /* ifdef DEBUG */
+  }
+}
+
+void send_order(
+    RecipeHT *recipe_ht, StockHT *stock_ht, WaitingQueue *waiting_queue,
+    TruckQueue *truck_queue, Order *order,
+    bool is_waiting_order) { // TODO: Consider to return a boolean value
+  Stock **missing_ingredients =
+      (Stock **)malloc(order->recipe->n_ingredients * sizeof(Stock *));
+  if (missing_ingredients == NULL) {
+    printf("Error while allocating missing ingredients\n");
+    return;
+  }
+
+  // Check if all ingredients are available
+  RecipeIngredient *ingredient = order->recipe->ingredients;
+  int n_missing_ingredients = 0;
+  while (ingredient != NULL) {
+    Stock *stock = stock_ht_get(stock_ht, ingredient->name);
+    if (stock != NULL) {
+      stock_remove_expired_ingredients(stock, CURR_TIME);
+    }
+    if (stock == NULL ||
+        ingredient->quantity * order->amount > stock->total_quantity) {
+      missing_ingredients[n_missing_ingredients++] = stock;
+    }
+    ingredient = ingredient->next;
+  }
+
+  if (n_missing_ingredients == 0) {
+    free(missing_ingredients);
+
+    // Remove the ingredients from the stock
+    RecipeIngredient *ingredient = order->recipe->ingredients;
+    while (ingredient != NULL) {
+      Stock *stock = stock_ht_get(stock_ht, ingredient->name);
+      stock_remove_ingredient(stock, ingredient->quantity * order->amount);
+#ifdef DEBUG
+      print_stock_ingredients(stock);
+#endif /* ifdef DEBUG */
+      ingredient = ingredient->next;
+    }
+
+    // If the order was arrived from the waiting queue, we should enqueue
+    // the order in the truck queue in the right position (by arrival time)
+    // (O(n))
+
+    // Otherwise, we should enqueue the order in the truck queue at the end
+    // (O(1))
+    truck_queue_enqueue(truck_queue, create_truck_node(order));
+    return;
+  }
+
+  // If not from the waiting queue, we should enqueue the order in the waiting
+  free(missing_ingredients);
+}
+
+void print_stock_ingredients(Stock *stock) {
+  printf("=====================================\n");
+  printf("Stock: %s\n", stock->name);
+  StockIngredient *ingredient = stock->ingredients;
+  while (ingredient != NULL) {
+    printf("Ingredient: %d %d\n", ingredient->quantity,
+           ingredient->expiration_date);
+    ingredient = ingredient->next;
   }
 }
 
@@ -815,13 +988,28 @@ void handle_order(RecipeHT *recipe_ht, StockHT *stock_ht,
   Order *order = create_order(recipe, amount, CURR_TIME);
   send_order(recipe_ht, stock_ht, waiting_queue, truck_queue, order, false);
 }
+
+void handle_truck(char *line) {
+  char *time = strtok(line, " ");
+  if (time == NULL) {
+    printf("Error while parsing truck time\n");
+    return;
+  }
+  char *weight = strtok(NULL, " ");
+  if (weight == NULL) {
+    printf("Error while parsing truck weight\n");
+    return;
+  }
+  set_truck_time(atoi(time));
+  set_truck_weight(atoi(weight));
+}
 // END UTIL IMPLEMENTATION ==========================
 
 int main(void) {
   RecipeHT *recipe_ht = create_recipe_ht(HT_INIT_SIZE);
   StockHT *stock_ht = create_stock_ht(HT_INIT_SIZE);
   WaitingQueue *waiting_queue = create_waiting_queue();
-  TruckQueue *truck_queue = create_truck_queue();
+  TruckQueue *truck_queue = NULL; // create_truck_queue();
 
   char command[COMMAND_LEN];
   char *line;
@@ -831,6 +1019,7 @@ int main(void) {
 #ifdef DEBUG
       printf("DEBUG: HANDLE TRUCK\n");
 #endif /* ifdef DEBUG */
+      truck_queue_dequeue(truck_queue);
     }
 
     if (sscanf(line, "%s", command) == 1) {
@@ -869,4 +1058,5 @@ int main(void) {
   free_recipe_ht(recipe_ht);
   free_stock_ht(stock_ht);
   free_waiting_queue(waiting_queue);
+  free_truck_queue(truck_queue);
 }
