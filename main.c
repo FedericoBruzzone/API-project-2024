@@ -431,7 +431,10 @@ void stock_remove_expired_ingredients(Stock *stock, int curr_time) {
 }
 
 void stock_remove_ingredient(Stock *stock, int quantity) {
+#if DEBUG
   printf("Removing ingredient: %d\n", quantity);
+#endif /* if DEBUG                                                             \
+        */
 
   StockIngredient *curr_ingredient = stock->ingredients;
   StockIngredient *prev_ingredient = NULL;
@@ -685,7 +688,8 @@ void free_truck_node(TruckNode *node) {
 }
 
 void order_node_enqueue_by_weight(TruckNode **list, TruckNode *node) {
-  // Add node in decreasing order according to the weight in the list
+  // Add node in decreasing order according to the weight in the list,
+  // if the weight is the same, order by arrival time
   if (*list == NULL) {
     *list = node;
     return;
@@ -695,6 +699,14 @@ void order_node_enqueue_by_weight(TruckNode **list, TruckNode *node) {
   TruckNode *prev = NULL;
   while (curr != NULL &&
          curr->order->total_weight > node->order->total_weight) {
+    prev = curr;
+    curr = curr->next;
+  }
+
+  // Find the correct position to insert the node (by arrival time).
+  while (curr != NULL &&
+         curr->order->total_weight == node->order->total_weight &&
+         curr->order->arrival_time < node->order->arrival_time) {
     prev = curr;
     curr = curr->next;
   }
@@ -743,8 +755,30 @@ void truck_queue_enqueue(TruckQueue *queue, TruckNode *node) {
     return;
   }
 
+#ifdef DEBUG
+  printf("EEEEEENQUEUE\n");
+  TruckNode *curr = queue->head;
+  while (curr != NULL) {
+    printf("%d %s %d\n", curr->order->arrival_time, curr->order->recipe->name,
+           curr->order->amount);
+    curr = curr->next;
+  }
+  printf("EEEEEENQUEUE\n");
+#endif /* ifdef DEBUG */
+
   queue->tail->next = node;
   queue->tail = node;
+
+#ifdef DEBUG
+  printf("EEEEEENQUEUE\n");
+  curr = queue->head;
+  while (curr != NULL) {
+    printf("%d %s %d\n", curr->order->arrival_time, curr->order->recipe->name,
+           curr->order->amount);
+    curr = curr->next;
+  }
+  printf("EEEEEENQUEUE\n");
+#endif /* ifdef DEBUG */
 }
 
 void truck_queue_enqueue_by_arrival_time(TruckQueue *queue, TruckNode *node) {
@@ -771,11 +805,8 @@ void truck_queue_enqueue_by_arrival_time(TruckQueue *queue, TruckNode *node) {
 
   prev->next = node;
   node->next = curr;
-
-  // Print truck queue
-  TruckNode *curr_node = queue->head;
-  while (curr_node != NULL) {
-    curr_node = curr_node->next;
+  if (curr == NULL) {
+    queue->tail = node;
   }
 }
 
@@ -993,23 +1024,24 @@ bool send_order(
   int n_missing_ingredients = 0;
   while (ingredient != NULL) {
     Stock *stock = stock_ht_get(stock_ht, ingredient->name);
-    print_stock_ingredients(stock);
 
     if (stock != NULL) {
       stock_remove_expired_ingredients(stock, CURR_TIME);
     }
 
+#ifdef DEBUG
     printf("After removing expired ingredients\n");
     print_stock_ingredients(stock);
+#endif /* ifdef DEBUG */
 
     if (ingredient->quantity * order->amount > stock->total_quantity) {
       missing_ingredients[n_missing_ingredients++] = stock;
     }
 
-    // TODO: Check stock == NULL
-
     ingredient = ingredient->next;
   }
+
+  printf("HERE\n");
 
   if (n_missing_ingredients == 0) {
     free(missing_ingredients);
@@ -1019,13 +1051,15 @@ bool send_order(
     while (ingredient != NULL) {
       Stock *stock = stock_ht_get(stock_ht, ingredient->name);
 
+#ifdef DEBUG
       printf("Before removing ingredients\n");
       print_stock_ingredients(stock);
+#endif /* ifdef DEBUG */
+
       stock_remove_ingredient(stock, ingredient->quantity * order->amount);
 
-      printf("After removing ingredients\n");
-      print_stock_ingredients(stock);
 #ifdef DEBUG
+      printf("After removing ingredients\n");
       print_stock_ingredients(stock);
 #endif /* ifdef DEBUG */
       ingredient = ingredient->next;
@@ -1035,13 +1069,17 @@ bool send_order(
     // the order in the truck queue in the right position (by arrival time)
     // (O(n))
     if (is_waiting_order) {
+#ifdef DEBUG
       printf("Name: %s\n", order->recipe->name);
+#endif /* ifdef DEBUG */
       truck_queue_enqueue_by_arrival_time(truck_queue,
                                           create_truck_node(order));
     } else {
       // Otherwise, we should enqueue the order in the truck queue at the end
       // (O(1))
+#ifdef DEBUG
       printf("Name 2: %s\n", order->recipe->name);
+#endif /* ifdef DEBUG */
       truck_queue_enqueue(truck_queue, create_truck_node(order));
     }
 
@@ -1065,8 +1103,11 @@ void check_waiting_orders(WaitingQueue *waiting_queue, TruckQueue *truck_queue,
   WaitingNode *prev_node = NULL;
   while (node != NULL) {
     WaitingNode *next = node->next;
+#ifdef DEBUG
     printf("name: %s, n_missing_ingredients: %d\n", node->order->recipe->name,
            node->n_missing_ingredients);
+#endif /* ifdef DEBUG */
+
     // TODO: Check only the missing ingredients
     bool sent =
         send_order(stock_ht, waiting_queue, truck_queue, node->order, true);
@@ -1192,21 +1233,20 @@ int main(void) {
       }
     }
 
+#ifdef DEBUG
     // Print truck queue
     TruckNode *curr_node = truck_queue->head;
     while (curr_node != NULL) {
-      printf("Truck: %s %d\n", curr_node->order->recipe->name,
-             curr_node->order->amount);
+      printf("Truck: %d %s %d\n", curr_node->order->arrival_time,
+             curr_node->order->recipe->name, curr_node->order->amount);
       curr_node = curr_node->next;
     }
+#endif /* ifdef DEBUG */
 
     free(line);
   }
 
   if (CURR_TIME != 0 && TRUCK_TIME != 0 && CURR_TIME % TRUCK_TIME == 0) {
-#ifdef DEBUG
-    printf("DEBUG: HANDLE TRUCK\n");
-#endif /* ifdef DEBUG */
     truck_queue_dequeue(truck_queue);
   }
 
