@@ -267,12 +267,8 @@ void recipe_ht_delete(RecipeHT *ht, char *name) {
     printf("non presente\n");
     return;
   }
-
-  // Check if there are waiting orders with this recipe
-  if (curr_recipe->n_waiting_orders > 0) {
-    printf("ordini in sospeso\n");
-    return;
-  }
+  // printf("curr_recipe->n_waiting_orders: %d\n",
+  // curr_recipe->n_waiting_orders);
 
   Recipe *prev_recipe = NULL;
 
@@ -281,11 +277,23 @@ void recipe_ht_delete(RecipeHT *ht, char *name) {
     curr_recipe = curr_recipe->next;
   }
 
+  if (curr_recipe == NULL) {
+    printf("non presente\n");
+    return;
+  }
+
+  // Check if there are waiting orders with this recipe
+  if (curr_recipe->n_waiting_orders > 0) {
+    printf("ordini in sospeso\n");
+    return;
+  }
+
   if (prev_recipe == NULL)
     ht->recipes[hash] = curr_recipe->next;
   else
     prev_recipe->next = curr_recipe->next;
 
+  curr_recipe->next = NULL;
   free_recipe(curr_recipe);
   ht->n_elements--;
 
@@ -855,6 +863,10 @@ void truck_queue_dequeue(TruckQueue *queue) {
   }
 
   queue->head = node;
+  // If the queue is now empty, update the tail to NULL
+  if (queue->head == NULL) {
+    queue->tail = NULL;
+  }
 }
 
 void set_truck_time(int time) { TRUCK_TIME = time; }
@@ -1044,10 +1056,6 @@ bool send_order(StockHT *stock_ht, WaitingQueue *waiting_queue,
 
     ingredient = ingredient->next;
   }
-
-  // printf("Name: %s, Arrived: %d, Amount: %d, Missing: %d\n",
-  //        order->recipe->name, order->arrival_time, order->amount,
-  //        n_missing_ingredients);
 
   if (n_missing_ingredients == 0) {
     free(missing_ingredients);
@@ -1244,7 +1252,6 @@ int main(void) {
 #ifdef DEBUG
         printf("DEBUG: %s\n", line);
 #endif /* ifdef DEBUG */
-        printf("DEBUG: %s %d\n", line, CURR_TIME);
         remove_recipe(recipe_ht, line);
         increase_curr_time();
       } else if (strcmp(command, "rifornimento") == 0) {
@@ -1257,6 +1264,7 @@ int main(void) {
 #ifdef DEBUG
         printf("DEBUG: %s\n", line);
 #endif /* ifdef DEBUG */
+        // printf("DEBUG: %s\n", line);
         handle_order(recipe_ht, stock_ht, waiting_queue, truck_queue, line);
         increase_curr_time();
       } else {
