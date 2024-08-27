@@ -1011,7 +1011,6 @@ void handle_stock(StockHT *stock_ht, char *line, WaitingQueue *waiting_queue,
 
 bool send_order(StockHT *stock_ht, WaitingQueue *waiting_queue,
                 TruckQueue *truck_queue, Order *order, bool is_waiting_order) {
-
   if (!is_waiting_order) {
     order->recipe->n_waiting_orders++;
   }
@@ -1245,6 +1244,7 @@ int main(void) {
 #ifdef DEBUG
         printf("DEBUG: %s\n", line);
 #endif /* ifdef DEBUG */
+        printf("DEBUG: %s %d\n", line, CURR_TIME);
         remove_recipe(recipe_ht, line);
         increase_curr_time();
       } else if (strcmp(command, "rifornimento") == 0) {
