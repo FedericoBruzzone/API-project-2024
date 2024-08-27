@@ -69,7 +69,7 @@ Order *create_order(Recipe *, int, int);
 void free_order(Order *);
 
 typedef struct WaitingNode WaitingNode;
-WaitingNode *create_waiting_node(Order *, Stock **, int);
+WaitingNode *create_waiting_node(Order *, char **, int);
 void free_waiting_node(WaitingNode *);
 
 typedef struct WaitingQueue WaitingQueue;
@@ -600,12 +600,12 @@ void free_order(Order *order) {
 
 struct WaitingNode {
   Order *order;
-  Stock **missing_ingredients;
+  char **missing_ingredients;
   int n_missing_ingredients;
   WaitingNode *next;
 };
 
-WaitingNode *create_waiting_node(Order *order, Stock **missing_ingredients,
+WaitingNode *create_waiting_node(Order *order, char **missing_ingredients,
                                  int n_missing_ingredients) {
   WaitingNode *node = (WaitingNode *)malloc(sizeof(WaitingNode));
   if (node == NULL) {
@@ -658,6 +658,9 @@ void waiting_queue_enqueue(WaitingQueue *queue, WaitingNode *node) {
     queue->tail = node;
     return;
   }
+
+  // printf("name %s, arrival: %d, amount: %d\n", queue->tail->order->recipe->name,
+  //        queue->tail->order->arrival_time, queue->tail->order->amount);
 
   queue->tail->next = node;
   queue->tail = node;
@@ -847,8 +850,7 @@ void truck_queue_dequeue(TruckQueue *queue) {
     curr_order = next;
   }
 
-  queue->head = NULL;
-  queue->tail = NULL;
+  queue->head = node;
 }
 
 void set_truck_time(int time) { TRUCK_TIME = time; }
@@ -926,7 +928,7 @@ void add_recipe(RecipeHT *ht, char *line) {
   }
 
   if (recipe_ht_get(ht, recipe_name) != NULL) {
-    printf("ingnorato\n");
+    printf("ignorato\n");
     return;
   }
 
@@ -1003,17 +1005,15 @@ void handle_stock(StockHT *stock_ht, char *line, WaitingQueue *waiting_queue,
   check_waiting_orders(waiting_queue, truck_queue, stock_ht);
 }
 
-bool send_order(
-    StockHT *stock_ht, WaitingQueue *waiting_queue, TruckQueue *truck_queue,
-    Order *order,
-    bool is_waiting_order) { // TODO: Consider to return a boolean value
+bool send_order(StockHT *stock_ht, WaitingQueue *waiting_queue,
+                TruckQueue *truck_queue, Order *order, bool is_waiting_order) {
 
   if (!is_waiting_order) {
     order->recipe->n_waiting_orders++;
   }
 
-  Stock **missing_ingredients =
-      (Stock **)malloc(order->recipe->n_ingredients * sizeof(Stock *));
+  char **missing_ingredients =
+      (char **)malloc(order->recipe->n_ingredients * sizeof(char *));
   if (missing_ingredients == NULL) {
     printf("Error while allocating missing ingredients\n");
     return false;
@@ -1034,14 +1034,17 @@ bool send_order(
     print_stock_ingredients(stock);
 #endif /* ifdef DEBUG */
 
-    if (ingredient->quantity * order->amount > stock->total_quantity) {
-      missing_ingredients[n_missing_ingredients++] = stock;
+    if (stock == NULL ||
+        ingredient->quantity * order->amount > stock->total_quantity) {
+      missing_ingredients[n_missing_ingredients++] = ingredient->name;
     }
 
     ingredient = ingredient->next;
   }
 
-  printf("HERE\n");
+  // printf("Name: %s, Arrived: %d, Amount: %d, Missing: %d\n",
+  //        order->recipe->name, order->arrival_time, order->amount,
+  //        n_missing_ingredients);
 
   if (n_missing_ingredients == 0) {
     free(missing_ingredients);
@@ -1092,6 +1095,17 @@ bool send_order(
                             create_waiting_node(order, missing_ingredients,
                                                 n_missing_ingredients));
     }
+
+    // // Print the waiting queue
+    // printf("---------- WaitingQueue ----------\n");
+    // WaitingNode *node = waiting_queue->head;
+    // while (node != NULL) {
+    //   printf("%d %s %d\n", node->order->arrival_time, node->order->recipe->name,
+    //          node->order->amount);
+    //   node = node->next;
+    // }
+    // printf("---------- End WaitingQueue ----------\n");
+
     return false;
   }
   return false;
@@ -1102,20 +1116,32 @@ void check_waiting_orders(WaitingQueue *waiting_queue, TruckQueue *truck_queue,
   WaitingNode *node = waiting_queue->head;
   WaitingNode *prev_node = NULL;
   while (node != NULL) {
-    WaitingNode *next = node->next;
 #ifdef DEBUG
     printf("name: %s, n_missing_ingredients: %d\n", node->order->recipe->name,
            node->n_missing_ingredients);
 #endif /* ifdef DEBUG */
 
     // TODO: Check only the missing ingredients
+
     bool sent =
         send_order(stock_ht, waiting_queue, truck_queue, node->order, true);
+
+    WaitingNode *next = node->next;
+
     if (sent) {
+
+      // Order sent successfully, remove node from waiting queue
+
       if (prev_node == NULL) {
+        // Node is the head
         waiting_queue->head = next;
       } else {
         prev_node->next = next;
+      }
+
+      if (next == NULL) {
+        // Node is the tail
+        waiting_queue->tail = prev_node;
       }
     } else {
       prev_node = node;
@@ -1233,15 +1259,17 @@ int main(void) {
       }
     }
 
-#ifdef DEBUG
-    // Print truck queue
-    TruckNode *curr_node = truck_queue->head;
-    while (curr_node != NULL) {
-      printf("Truck: %d %s %d\n", curr_node->order->arrival_time,
-             curr_node->order->recipe->name, curr_node->order->amount);
-      curr_node = curr_node->next;
-    }
-#endif /* ifdef DEBUG */
+    // printf("\n");
+    // printf("---------- TruckQueue ----------\n");
+    // // Print truck queue
+    // TruckNode *curr_node = truck_queue->head;
+    // while (curr_node != NULL) {
+    //   printf("Truck: %d %s %d\n", curr_node->order->arrival_time,
+    //          curr_node->order->recipe->name, curr_node->order->amount);
+    //   curr_node = curr_node->next;
+    // }
+    // printf("---------- End TruckQueue ----------\n");
+    // printf("\n");
 
     free(line);
   }
