@@ -263,6 +263,11 @@ void recipe_ht_delete(RecipeHT *ht, char *name) {
   uint32_t hash = hash_string(name, ht->size);
   Recipe *curr_recipe = ht->recipes[hash];
 
+  if (curr_recipe == NULL) {
+    printf("non presente\n");
+    return;
+  }
+
   // Check if there are waiting orders with this recipe
   if (curr_recipe->n_waiting_orders > 0) {
     printf("ordini in sospeso\n");
@@ -275,10 +280,7 @@ void recipe_ht_delete(RecipeHT *ht, char *name) {
     prev_recipe = curr_recipe;
     curr_recipe = curr_recipe->next;
   }
-  if (curr_recipe == NULL) {
-    printf("non presente\n");
-    return;
-  }
+
   if (prev_recipe == NULL)
     ht->recipes[hash] = curr_recipe->next;
   else
@@ -300,6 +302,7 @@ void recipe_ht_resize(RecipeHT *ht) {
     Recipe *recipe = ht->recipes[i];
     while (recipe != NULL) {
       Recipe *next = recipe->next;
+      recipe->next = NULL;
       recipe_ht_put(new_ht, recipe);
       recipe = next;
     }
@@ -659,7 +662,8 @@ void waiting_queue_enqueue(WaitingQueue *queue, WaitingNode *node) {
     return;
   }
 
-  // printf("name %s, arrival: %d, amount: %d\n", queue->tail->order->recipe->name,
+  // printf("name %s, arrival: %d, amount: %d\n",
+  // queue->tail->order->recipe->name,
   //        queue->tail->order->arrival_time, queue->tail->order->amount);
 
   queue->tail->next = node;
@@ -1100,7 +1104,8 @@ bool send_order(StockHT *stock_ht, WaitingQueue *waiting_queue,
     // printf("---------- WaitingQueue ----------\n");
     // WaitingNode *node = waiting_queue->head;
     // while (node != NULL) {
-    //   printf("%d %s %d\n", node->order->arrival_time, node->order->recipe->name,
+    //   printf("%d %s %d\n", node->order->arrival_time,
+    //   node->order->recipe->name,
     //          node->order->amount);
     //   node = node->next;
     // }
