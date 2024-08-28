@@ -1082,6 +1082,13 @@ void send_order(StockHT *stock_ht, Order *order, bool is_waiting_order,
     ingredient = ingredient->next;
   }
 
+  TruckNode *node = create_truck_node(order);
+  if (node == NULL) {
+    printf("Error while creating truck node\n");
+    return;
+  }
+
+
   // If the order was arrived from the waiting queue, we should enqueue
   // the order in the truck queue in the right position (by arrival time)
   // (O(n))
@@ -1089,14 +1096,14 @@ void send_order(StockHT *stock_ht, Order *order, bool is_waiting_order,
 #ifdef DEBUG
     printf("Name: %s\n", order->recipe->name);
 #endif /* ifdef DEBUG */
-    truck_queue_enqueue_by_arrival_time(truck_queue, create_truck_node(order));
+    truck_queue_enqueue_by_arrival_time(truck_queue, node);
   } else {
     // Otherwise, we should enqueue the order in the truck queue at the end
     // (O(1))
 #ifdef DEBUG
     printf("Name 2: %s\n", order->recipe->name);
 #endif /* ifdef DEBUG */
-    truck_queue_enqueue(truck_queue, create_truck_node(order));
+    truck_queue_enqueue(truck_queue, node);
   }
 }
 
