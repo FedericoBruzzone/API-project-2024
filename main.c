@@ -738,7 +738,9 @@ void order_queue_dequeue(OrderQueue *queue) {
     n_orders++;
 
     order_node_enqueue_by_weight(&orders, create_order_node(node->order));
-    node = node->next;
+    OrderNode *next = node->next;
+    free(node);
+    node = next;
   }
 
   if (n_orders == 0) {
