@@ -1054,28 +1054,25 @@ int main(void) {
   OrderQueue *waiting_queue = create_order_queue();
   OrderQueue *truck_queue = create_order_queue();
 
-  char command[COMMAND_LEN];
+  char command[4];
   char *line;
 
   while ((line = read_line(stdin)) != NULL) {
-
     if (CURR_TIME != 0 && TRUCK_TIME != 0 && CURR_TIME % TRUCK_TIME == 0) {
       order_queue_dequeue(truck_queue);
     }
 
-    if (sscanf(line, "%s", command) == 1) {
-      if (strcmp(command, "aggiungi_ricetta") == 0) {
-        // Quando arriva la ricetta dobbiamo stoccare gli ingredienti e poi
-        // quando arriva il rifornimento dobbiamo aggiungerli a quel puntatore
+    if (sscanf(line, "%3s", command) == 1) {  // Only read the first three characters
+      if (strcmp(command, "agg") == 0) {
         add_recipe(recipe_ht, line);
         increase_curr_time();
-      } else if (strcmp(command, "rimuovi_ricetta") == 0) {
+      } else if (strcmp(command, "rim") == 0) {
         remove_recipe(recipe_ht, line);
         increase_curr_time();
-      } else if (strcmp(command, "rifornimento") == 0) {
+      } else if (strcmp(command, "rif") == 0) {
         handle_stock(stock_ht, line, waiting_queue, truck_queue);
         increase_curr_time();
-      } else if (strcmp(command, "ordine") == 0) {
+      } else if (strcmp(command, "ord") == 0) {
         handle_order(recipe_ht, stock_ht, waiting_queue, truck_queue, line);
         increase_curr_time();
       } else {
@@ -1095,3 +1092,5 @@ int main(void) {
   free_order_queue(waiting_queue);
   free_order_queue(truck_queue);
 }
+
+
