@@ -784,56 +784,33 @@ void set_truck_weight(int weight) { TRUCK_WEIGHT = weight; }
 
 // UTIL IMPLEMENTATION ==============================
 uint32_t hash_string(char *str, int size) {
-  unsigned long hash = 2166136261UL;
+  unsigned long hash = 5381;
   int c;
-
   while ((c = *str++)) {
-    hash ^= c;
-    hash *= 16777619;
+    hash = ((hash << 5) + hash) + c; /* hash * 33 + c */
   }
-
   return hash % size;
 }
 
 void increase_curr_time() { CURR_TIME++; }
 
 char *read_line(FILE *stream) {
-  char *buffer = (char *)malloc(LINE_SIZE);
-  if (buffer == NULL) {
+  char *line = NULL;
+  size_t len = 0;
+  ssize_t nread;
+
+  nread = getline(&line, &len, stream);
+
+  if (nread == -1) {
+    free(line);
     return NULL;
   }
 
-  size_t size = LINE_SIZE;
-  int c;
-  size_t i = 0;
-
-  while ((c = getchar_unlocked()) != EOF && c != '\n') {
-    if (i >= size - 1) {
-      size_t new_size = (size * 2);
-      char *new_buffer = (char *)realloc(buffer, new_size);
-      if (buffer == NULL) {
-        return NULL;
-      }
-      buffer = new_buffer;
-      size = new_size;
-    }
-    buffer[i++] = c;
+  if (nread > 0 && line[nread - 1] == '\n') {
+    line[nread - 1] = '\0';
   }
 
-  if (ferror(stream)) {
-    printf("Error while reading from stream\n");
-    free(buffer);
-    return NULL;
-  }
-
-  if (i == 0 && c == EOF) {
-    free(buffer);
-    return NULL;
-  }
-
-  buffer[i] = '\0';
-
-  return buffer;
+  return line;
 }
 
 void add_recipe(RecipeHT *ht, char *line) {
