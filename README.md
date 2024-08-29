@@ -74,13 +74,13 @@ valgrind -s --leak-check=full --show-leak-kinds=all --track-origins=yes ./main <
 **Inspect time of execution:**
 ```bash
 valgrind --tool=callgrind ./main < test_cases/<test_case>.txt
-kcachegrind callgrind.out.PID # or ms_print massif.out.PID
+kcachegrind callgrind.out.PID
 ```
 
 **Inspect memory usage:**
 ```bash
 valgrind --tool=massif ./main < test_cases/<test_case>.txt
-ms_print massif.out.PID
+massif-visualizer massif.out.PID # or ms_print massif.out.PID
 ```
 
 **Check for cache misses:**

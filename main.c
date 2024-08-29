@@ -8,8 +8,9 @@
 #define LINE_SIZE 512
 #define NAME_LEN 256
 #define COMMAND_LEN 17
-#define HT_LOAD_FACTOR 0.75
-#define HT_INIT_SIZE 512
+#define HT_LOAD_FACTOR 0.70
+#define HT_INIT_SIZE_RECIPE 256
+#define HT_INIT_SIZE_INGREDIENT 1024
 // END DEFINE =======================================
 
 // GLOBAL VARIABLES =================================
@@ -739,7 +740,6 @@ void order_queue_dequeue(OrderQueue *queue) {
 
     order_node_enqueue_by_weight(&orders, create_order_node(node->order));
     OrderNode *next = node->next;
-    free(node);
     node = next;
   }
 
@@ -1080,8 +1080,8 @@ void handle_truck(char *line) {
 // END UTIL IMPLEMENTATION ==========================
 
 int main(void) {
-  RecipeHT *recipe_ht = create_recipe_ht(HT_INIT_SIZE);
-  StockHT *stock_ht = create_stock_ht(HT_INIT_SIZE);
+  RecipeHT *recipe_ht = create_recipe_ht(HT_INIT_SIZE_RECIPE);
+  StockHT *stock_ht = create_stock_ht(HT_INIT_SIZE_INGREDIENT);
   OrderQueue *waiting_queue = create_order_queue();
   OrderQueue *truck_queue = create_order_queue();
 
