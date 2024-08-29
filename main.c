@@ -98,11 +98,9 @@ void handle_order(RecipeHT *, StockHT *, OrderQueue *, OrderQueue *, char *);
 void handle_truck(char *);
 
 bool try_send_order(StockHT *, OrderQueue *, OrderQueue *, Order *, bool);
-bool check_missing_ingredients(StockHT *, Recipe *);
+bool check_missing_ingredients(StockHT *, Order *, Stock **);
 void check_waiting_orders(OrderQueue *, OrderQueue *, StockHT *);
-void send_order(StockHT *, Order *, bool, OrderQueue *);
-
-void print_stock_ingredients(Stock *);
+void send_order(StockHT *, Order *, bool, OrderQueue *, Stock **);
 // END UTIL =============================
 
 // RECIPE IMPLEMENTATION ============================
@@ -836,9 +834,9 @@ void add_recipe(RecipeHT *ht, char *line) {
     if (ingredient_quantity == NULL) {
       return;
     }
-    RecipeIngredient *ingredient =
-        create_recipe_ingredient(ingredient_name, atoi(ingredient_quantity));
-    recipe_add_ingredient(recipe, ingredient);
+    recipe_add_ingredient(
+        recipe,
+        create_recipe_ingredient(ingredient_name, atoi(ingredient_quantity)));
   }
 
   recipe_ht_put(ht, recipe);
@@ -900,28 +898,12 @@ bool try_send_order(StockHT *stock_ht, OrderQueue *waiting_queue,
     order->recipe->n_waiting_orders++;
   }
 
-  bool missing_ingredients_flag = false;
-
-  // Check if all ingredients are available
-  RecipeIngredient *ingredient = order->recipe->ingredients;
-  while (ingredient != NULL) {
-    Stock *stock = stock_ht_get(stock_ht, ingredient->name);
-
-    if (stock != NULL) {
-      stock_remove_expired_ingredients(stock, CURR_TIME);
-    }
-
-    if (stock == NULL ||
-        ingredient->quantity * order->amount > stock->total_quantity) {
-      missing_ingredients_flag = true;
-      break;
-    }
-
-    ingredient = ingredient->next;
-  }
+  Stock *stocks[order->recipe->n_ingredients];
+  bool missing_ingredients_flag =
+      check_missing_ingredients(stock_ht, order, stocks);
 
   if (!missing_ingredients_flag) {
-    send_order(stock_ht, order, is_waiting_order, truck_queue);
+    send_order(stock_ht, order, is_waiting_order, truck_queue, stocks);
     return true;
   } else {
     // If not from the waiting queue, we should enqueue the order in the
@@ -929,21 +911,18 @@ bool try_send_order(StockHT *stock_ht, OrderQueue *waiting_queue,
     if (!is_waiting_order) {
       order_queue_enqueue(waiting_queue, create_order_node(order));
     }
-
     return false;
   }
   return false;
 }
 
 void send_order(StockHT *stock_ht, Order *order, bool is_waiting_order,
-                OrderQueue *truck_queue) {
+                OrderQueue *truck_queue, Stock **stocks) {
   // Remove the ingredients from the stock
   RecipeIngredient *ingredient = order->recipe->ingredients;
+  int i = 0;
   while (ingredient != NULL) {
-    Stock *stock = stock_ht_get(stock_ht, ingredient->name);
-
-    stock_remove_ingredient(stock, ingredient->quantity * order->amount);
-
+    stock_remove_ingredient(stocks[i++], ingredient->quantity * order->amount);
     ingredient = ingredient->next;
   }
 
@@ -964,16 +943,29 @@ void send_order(StockHT *stock_ht, Order *order, bool is_waiting_order,
   }
 }
 
-bool check_missing_ingredients(StockHT *stock_ht, Recipe *recipe) {
-  RecipeIngredient *ingredient = recipe->ingredients;
+// Check if all ingredients are available
+bool check_missing_ingredients(StockHT *stock_ht, Order *order,
+                               Stock **stocks) {
+  bool missing_ingredients_flag = false;
+  int i = 0;
+  RecipeIngredient *ingredient = order->recipe->ingredients;
   while (ingredient != NULL) {
     Stock *stock = stock_ht_get(stock_ht, ingredient->name);
-    if (stock == NULL || ingredient->quantity < stock->total_quantity) {
-      return false;
+
+    if (stock != NULL) {
+      stock_remove_expired_ingredients(stock, CURR_TIME);
     }
+
+    if (stock == NULL ||
+        ingredient->quantity * order->amount > stock->total_quantity) {
+      missing_ingredients_flag = true;
+      break;
+    }
+
+    stocks[i++] = stock;
     ingredient = ingredient->next;
   }
-  return true;
+  return missing_ingredients_flag;
 }
 
 void check_waiting_orders(OrderQueue *waiting_queue, OrderQueue *truck_queue,
