@@ -114,7 +114,7 @@ struct Recipe {
   char *name;
   int weight;
   int n_ingredients;
-  RecipeIngredient *ingredients;
+  RecipeIngredient *ingredients; // TODO: Pointer to the stock ingredient
   int n_waiting_orders;
   Recipe *next;
 };
@@ -834,6 +834,8 @@ void add_recipe(RecipeHT *ht, char *line) {
     if (ingredient_quantity == NULL) {
       return;
     }
+
+    // Add ingredient to the StockHT
     recipe_add_ingredient(
         recipe,
         create_recipe_ingredient(ingredient_name, atoi(ingredient_quantity)));
@@ -1063,6 +1065,8 @@ int main(void) {
 
     if (sscanf(line, "%s", command) == 1) {
       if (strcmp(command, "aggiungi_ricetta") == 0) {
+        // Quando arriva la ricetta dobbiamo stoccare gli ingredienti e poi
+        // quando arriva il rifornimento dobbiamo aggiungerli a quel puntatore
         add_recipe(recipe_ht, line);
         increase_curr_time();
       } else if (strcmp(command, "rimuovi_ricetta") == 0) {
