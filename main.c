@@ -6,7 +6,6 @@
 
 // DEFINE ===========================================
 #define LINE_SIZE 512
-// #define NAME_LEN 256
 #define COMMAND_LEN 17
 #define HT_LOAD_FACTOR 0.70
 #define HT_INIT_SIZE_RECIPE 1024
@@ -108,14 +107,12 @@ void print_stock_ingredients(Stock *);
 
 // RECIPE IMPLEMENTATION ============================
 struct RecipeIngredient {
-  // char name[NAME_LEN];
   char *name;
   int quantity;
   RecipeIngredient *next;
 };
 
 struct Recipe {
-  // char name[NAME_LEN];
   char *name;
   int weight;
   int n_ingredients;
@@ -153,6 +150,7 @@ RecipeIngredient *create_recipe_ingredient(char *name, int quantity) {
 void free_recipe_ingredient(RecipeIngredient *ingredient) {
   while (ingredient != NULL) {
     RecipeIngredient *next = ingredient->next;
+    free(ingredient->name);
     free(ingredient);
     ingredient = next;
   }
@@ -182,6 +180,7 @@ Recipe *create_recipe(char *name) {
 
 void free_recipe(Recipe *recipe) {
   free_recipe_ingredient(recipe->ingredients);
+  free(recipe->name);
   free(recipe);
 }
 
@@ -335,7 +334,6 @@ struct StockIngredient {
 };
 
 struct Stock {
-  // char name[NAME_LEN];
   char *name;
   int n_ingredients; // TODO: Evaluate to remove
   int total_quantity;
@@ -477,6 +475,7 @@ void stock_remove_ingredient(Stock *stock, int quantity) {
 
 void free_stock(Stock *stock) {
   free_stock_ingredient(stock->ingredients);
+  free(stock->name);
   free(stock);
 }
 
@@ -750,9 +749,10 @@ void order_queue_dequeue(OrderQueue *queue) {
     tmp_weight += node->order->total_weight;
     n_orders++;
 
+    // TODO fix
     order_node_enqueue_by_weight(&orders, create_order_node(node->order));
     OrderNode *next = node->next;
-    // TODO FREE
+    free(node);
     node = next;
   }
 
@@ -1005,6 +1005,9 @@ void check_waiting_orders(OrderQueue *waiting_queue, OrderQueue *truck_queue,
   OrderNode *node = waiting_queue->head;
   OrderNode *prev_node = NULL;
   while (node != NULL) {
+    // Tenere in memoria una lista di ingredienti che sono stati aggiunti e
+    // controllare questi
+
     bool sent =
         try_send_order(stock_ht, waiting_queue, truck_queue, node->order, true);
 
