@@ -6,7 +6,7 @@
 
 // DEFINE ===========================================
 #define LINE_SIZE 512
-#define NAME_LEN 256
+// #define NAME_LEN 256
 #define COMMAND_LEN 17
 #define HT_LOAD_FACTOR 0.70
 #define HT_INIT_SIZE_RECIPE 256
@@ -108,13 +108,15 @@ void print_stock_ingredients(Stock *);
 
 // RECIPE IMPLEMENTATION ============================
 struct RecipeIngredient {
-  char name[NAME_LEN];
+  // char name[NAME_LEN];
+  char *name;
   int quantity;
   RecipeIngredient *next;
 };
 
 struct Recipe {
-  char name[NAME_LEN];
+  // char name[NAME_LEN];
+  char *name;
   int weight;
   int n_ingredients;
   RecipeIngredient *ingredients;
@@ -133,6 +135,12 @@ RecipeIngredient *create_recipe_ingredient(char *name, int quantity) {
       (RecipeIngredient *)malloc(sizeof(RecipeIngredient));
   if (ingredient == NULL) {
     printf("Error while allocating RecipeIngredient\n");
+    return NULL;
+  }
+
+  ingredient->name = (char *)malloc(strlen(name) + 1);
+  if (ingredient->name == NULL) {
+    free(ingredient);
     return NULL;
   }
 
@@ -155,6 +163,12 @@ Recipe *create_recipe(char *name) {
   Recipe *recipe = (Recipe *)malloc(sizeof(Recipe));
   if (recipe == NULL) {
     printf("Error while allocating Recipe\n");
+    return NULL;
+  }
+
+  recipe->name = (char *)malloc(strlen(name) + 1);
+  if (recipe->name == NULL) {
+    free(recipe);
     return NULL;
   }
 
@@ -325,7 +339,8 @@ struct StockIngredient {
 };
 
 struct Stock {
-  char name[NAME_LEN];
+  // char name[NAME_LEN];
+  char *name;
   int n_ingredients; // TODO: Evaluate to remove
   int total_quantity;
   StockIngredient *ingredients;
@@ -401,6 +416,12 @@ Stock *create_stock(char *name) {
   Stock *stock = (Stock *)malloc(sizeof(Stock));
   if (stock == NULL) {
     printf("Error while allocating Stock\n");
+    return NULL;
+  }
+
+  stock->name = (char *)malloc(strlen(name) + 1);
+  if (stock->name == NULL) {
+    free(stock);
     return NULL;
   }
 
@@ -786,7 +807,7 @@ uint32_t hash_string(char *str, int size) {
 void increase_curr_time() { CURR_TIME++; }
 
 char *read_line(FILE *stream) {
-  char *buffer = (char *)malloc(LINE_SIZE * sizeof(char));
+  char *buffer = (char *)malloc(LINE_SIZE);
   if (buffer == NULL) {
     printf("Error while allocating buffer size\n");
     return NULL;
@@ -799,7 +820,7 @@ char *read_line(FILE *stream) {
   while ((c = getchar_unlocked()) != EOF && c != '\n') {
     if (i >= size - 1) {
       size_t new_size = (size * 2);
-      char *new_buffer = (char *)realloc(buffer, new_size * sizeof(char));
+      char *new_buffer = (char *)realloc(buffer, new_size);
       if (buffer == NULL) {
         printf("Error while reallocating buffer size\n");
         return NULL;
