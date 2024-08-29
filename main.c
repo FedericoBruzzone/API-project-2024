@@ -134,7 +134,6 @@ RecipeIngredient *create_recipe_ingredient(char *name, int quantity) {
   RecipeIngredient *ingredient =
       (RecipeIngredient *)malloc(sizeof(RecipeIngredient));
   if (ingredient == NULL) {
-    printf("Error while allocating RecipeIngredient\n");
     return NULL;
   }
 
@@ -162,7 +161,6 @@ void free_recipe_ingredient(RecipeIngredient *ingredient) {
 Recipe *create_recipe(char *name) {
   Recipe *recipe = (Recipe *)malloc(sizeof(Recipe));
   if (recipe == NULL) {
-    printf("Error while allocating Recipe\n");
     return NULL;
   }
 
@@ -190,7 +188,6 @@ void free_recipe(Recipe *recipe) {
 RecipeHT *create_recipe_ht(int size) {
   RecipeHT *ht = (RecipeHT *)malloc(sizeof(RecipeHT));
   if (ht == NULL) {
-    printf("Error while allocating RecipeHT\n");
     return NULL;
   }
 
@@ -198,7 +195,6 @@ RecipeHT *create_recipe_ht(int size) {
   ht->size = size;
   ht->recipes = (Recipe **)malloc(size * sizeof(Recipe *));
   if (ht->recipes == NULL) {
-    printf("Error while allocating RecipeHT recipes\n");
     return NULL;
   }
   for (int i = 0; i < size; i++) {
@@ -415,7 +411,6 @@ void stock_add_ingredient(Stock *stock, StockIngredient *ingredient) {
 Stock *create_stock(char *name) {
   Stock *stock = (Stock *)malloc(sizeof(Stock));
   if (stock == NULL) {
-    printf("Error while allocating Stock\n");
     return NULL;
   }
 
@@ -496,7 +491,6 @@ StockHT *create_stock_ht(int size) {
   ht->size = size;
   ht->stocks = (Stock **)malloc(size * sizeof(Stock *));
   if (ht->stocks == NULL) {
-    printf("Error while allocating StockHT stocks\n");
     return NULL;
   }
   for (int i = 0; i < size; i++) {
@@ -601,7 +595,6 @@ struct Order {
 Order *create_order(Recipe *recipe, int amount, int arrival_time) {
   Order *order = (Order *)malloc(sizeof(Order));
   if (order == NULL) {
-    printf("Error while allocating Order\n");
     return NULL;
   }
 
@@ -624,7 +617,6 @@ OrderNode *create_order_node(Order *order) {
 
   OrderNode *node = (OrderNode *)malloc(sizeof(OrderNode));
   if (node == NULL) {
-    printf("Error while allocating OrderNode\n");
     return NULL;
   }
 
@@ -646,7 +638,6 @@ struct OrderQueue {
 OrderQueue *create_order_queue() {
   OrderQueue *queue = (OrderQueue *)malloc(sizeof(OrderQueue));
   if (queue == NULL) {
-    printf("Error while allocating OrderQueue\n");
     return NULL;
   }
 
@@ -761,6 +752,7 @@ void order_queue_dequeue(OrderQueue *queue) {
 
     order_node_enqueue_by_weight(&orders, create_order_node(node->order));
     OrderNode *next = node->next;
+    // TODO FREE
     node = next;
   }
 
@@ -809,7 +801,6 @@ void increase_curr_time() { CURR_TIME++; }
 char *read_line(FILE *stream) {
   char *buffer = (char *)malloc(LINE_SIZE);
   if (buffer == NULL) {
-    printf("Error while allocating buffer size\n");
     return NULL;
   }
 
@@ -822,7 +813,6 @@ char *read_line(FILE *stream) {
       size_t new_size = (size * 2);
       char *new_buffer = (char *)realloc(buffer, new_size);
       if (buffer == NULL) {
-        printf("Error while reallocating buffer size\n");
         return NULL;
       }
       buffer = new_buffer;
@@ -850,13 +840,11 @@ char *read_line(FILE *stream) {
 void add_recipe(RecipeHT *ht, char *line) {
   char *command = strtok(line, " ");
   if (command == NULL) {
-    printf("Error while parsing command\n");
     return;
   }
 
   char *recipe_name = strtok(NULL, " ");
   if (recipe_name == NULL) {
-    printf("Error while parsing recipe name\n");
     return;
   }
 
@@ -870,7 +858,6 @@ void add_recipe(RecipeHT *ht, char *line) {
   while ((ingredient_name = strtok(NULL, " ")) != NULL) {
     char *ingredient_quantity = strtok(NULL, " ");
     if (ingredient_quantity == NULL) {
-      printf("Error while parsing ingredient quantity\n");
       return;
     }
     RecipeIngredient *ingredient =
@@ -885,12 +872,10 @@ void add_recipe(RecipeHT *ht, char *line) {
 void remove_recipe(RecipeHT *ht, char *line) {
   char *command = strtok(line, " ");
   if (command == NULL) {
-    printf("Error while parsing command\n");
     return;
   }
   char *name = strtok(NULL, " ");
   if (name == NULL) {
-    printf("Error while parsing recipe name\n");
     return;
   }
 
@@ -901,21 +886,18 @@ void handle_stock(StockHT *stock_ht, char *line, OrderQueue *waiting_queue,
                   OrderQueue *truck_queue) {
   char *command = strtok(line, " ");
   if (command == NULL) {
-    printf("Error while parsing command\n");
     return;
   }
   char *stock_name;
   while ((stock_name = strtok(NULL, " ")) != NULL) {
     char *quantity_str = strtok(NULL, " ");
     if (quantity_str == NULL) {
-      printf("Error while parsing stock quantity\n");
       return;
     }
     int quantity = atoi(quantity_str);
 
     char *expiration_date_str = strtok(NULL, " ");
     if (expiration_date_str == NULL) {
-      printf("Error while parsing stock expiration date\n");
       return;
     }
     int expiration_date = atoi(expiration_date_str);
@@ -926,7 +908,6 @@ void handle_stock(StockHT *stock_ht, char *line, OrderQueue *waiting_queue,
     Stock *stock = stock_get_or_create(stock_ht, stock_name);
 
     if (stock == NULL) {
-      printf("Error while getting or creating stock\n");
       return;
     }
     stock_add_ingredient(stock, ingredient);
@@ -992,7 +973,6 @@ void send_order(StockHT *stock_ht, Order *order, bool is_waiting_order,
 
   OrderNode *node = create_order_node(order);
   if (node == NULL) {
-    printf("Error while creating truck node\n");
     return;
   }
 
@@ -1056,19 +1036,16 @@ void handle_order(RecipeHT *recipe_ht, StockHT *stock_ht,
                   char *line) {
   char *command = strtok(line, " ");
   if (command == NULL) {
-    printf("Error while parsing command\n");
     return;
   }
 
   char *recipe_name = strtok(NULL, " ");
   if (recipe_name == NULL) {
-    printf("Error while parsing recipe name\n");
     return;
   }
 
   char *amount_str = strtok(NULL, " ");
   if (amount_str == NULL) {
-    printf("Error while parsing order amount\n");
     return;
   }
   int amount = atoi(amount_str);
@@ -1087,12 +1064,10 @@ void handle_order(RecipeHT *recipe_ht, StockHT *stock_ht,
 void handle_truck(char *line) {
   char *time = strtok(line, " ");
   if (time == NULL) {
-    printf("Error while parsing truck time\n");
     return;
   }
   char *weight = strtok(NULL, " ");
   if (weight == NULL) {
-    printf("Error while parsing truck weight\n");
     return;
   }
   set_truck_time(atoi(time));
