@@ -9,7 +9,7 @@
 // #define NAME_LEN 256
 #define COMMAND_LEN 17
 #define HT_LOAD_FACTOR 0.70
-#define HT_INIT_SIZE_RECIPE 256
+#define HT_INIT_SIZE_RECIPE 1024
 #define HT_INIT_SIZE_INGREDIENT 1024
 // END DEFINE =======================================
 
