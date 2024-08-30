@@ -106,87 +106,90 @@ typedef struct HashSetEntry {
   int amount;
 } HashSetEntry;
 
+HashSetEntry *create_hash_set_entry(char *name, int amount) {
+  HashSetEntry *entry = (HashSetEntry *)malloc(sizeof(HashSetEntry));
+  entry->name = strdup(name);
+  entry->amount = amount;
+  return entry;
+}
+
+void free_hash_set_entry(HashSetEntry *entry) {
+  free(entry->name);
+  free(entry);
+}
+
+uint32_t hash_hash_set_entry(HashSetEntry *entry, int size) {
+  // Hash all fields of the entry
+  uint32_t hash = hash_string(entry->name, size);
+  hash = (hash * 31) + entry->amount;
+  return hash % size;
+}
+
 typedef struct HashSet {
   HashSetEntry *table;
   int size;
   int n_elements;
 } HashSet;
 
-HashSet *create_order_hash_set(int size) {
+HashSet *create_hash_set(int size) {
   HashSet *set = (HashSet *)malloc(sizeof(HashSet));
-  set->table = (HashSetEntry *)malloc(sizeof(HashSetEntry) * size);
   set->size = size;
   set->n_elements = 0;
-
-  for (int i = 0; i < size; i++) {
-    set->table[i].name = NULL; // Use NULL to indicate an empty slot
-    set->table[i].amount = 0;
-  }
-
+  set->table = (HashSetEntry *)malloc(size * sizeof(HashSetEntry));
   return set;
 }
 
-void resize(HashSet *set) {
-  int old_capacity = set->size;
-  HashSetEntry *old_table = set->table;
-
-  set->size *= 2;
-  set->table = (HashSetEntry *)malloc(sizeof(HashSetEntry) * set->size);
-  set->n_elements = 0;
-
+void free_hash_set(HashSet *set) {
   for (int i = 0; i < set->size; i++) {
-    set->table[i].name = NULL;
-    set->table[i].amount = 0;
-  }
-
-  for (int i = 0; i < old_capacity; i++) {
-    if (old_table[i].name != NULL) {
-      int index = hash_string(old_table[i].name, set->size);
-      while (set->table[index].name != NULL) {
-        index = (index + 1) % set->size;
-      }
-      set->table[index].name = old_table[i].name;
-      set->table[index].amount = old_table[i].amount;
-      set->size++;
+    if (set->table[i].name != NULL) {
+      free_hash_set_entry(&set->table[i]);
     }
   }
-
-  free(old_table);
+  free(set->table);
+  free(set);
 }
 
-void add(HashSet *set, char *name, int amount) {
-  if ((float)set->n_elements / set->size >= HT_LOAD_FACTOR) {
+void add(HashSet *set, HashSetEntry *entry);
+void resize(HashSet *set) {
+  HashSet *new_set = create_hash_set(set->size * 2);
+  for (int i = 0; i < set->size; i++) {
+    if (set->table[i].name != NULL) {
+      add(new_set, &set->table[i]);
+    }
+  }
+  free(set->table);
+  set->table = new_set->table;
+  set->size = new_set->size;
+  set->n_elements = new_set->n_elements;
+  free(new_set);
+}
+
+void add(HashSet *set, HashSetEntry *entry) {
+  uint32_t hash = hash_hash_set_entry(entry, set->size);
+  while (set->table[hash].name != NULL) {
+    hash = (hash + 1) % set->size;
+  }
+  set->table[hash] = *entry;
+  set->n_elements++;
+
+  if (set->n_elements >= set->size * HT_LOAD_FACTOR) {
     resize(set);
   }
-
-  int index = hash_string(name, set->size);
-
-  while (set->table[index].name != NULL &&
-         strcmp(set->table[index].name, name) != 0) {
-    index = (index + 1) % set->size;
-  }
-
-  if (set->table[index].name == NULL) {
-    set->table[index].name = strdup(name);
-    set->table[index].amount = amount;
-    set->n_elements++;
-  } else {
-    set->table[index].amount =
-        amount; // Update the amount if the name already exists
-  }
 }
 
-bool contains(HashSet *set, char *name, int amount) {
-  int hash = hash_string(name, set->size);
+bool contains(HashSet *set, HashSetEntry *entry) {
+  uint32_t hash = hash_hash_set_entry(entry, set->size);
   while (set->table[hash].name != NULL) {
-    if (strcmp(set->table[hash].name, name) == 0) {
-      return set->table[hash].amount >= amount; // TODO
+    // printf("HERE\n"); // TODO
+    if (strcmp(set->table[hash].name, entry->name) == 0 &&
+        set->table[hash].amount <= entry->amount) {
+      return true;
     }
     hash = (hash + 1) % set->size;
   }
-
   return false;
 }
+
 // ================== END TODO CACHE ========================
 
 // RECIPE IMPLEMENTATION ============================
@@ -1071,14 +1074,13 @@ inline void check_waiting_orders(OrderQueue *waiting_queue,
   OrderNode *node = waiting_queue->head;
   OrderNode *prev_node = NULL;
 
-  // Initialize the cache
-  HashSet *cache = create_order_hash_set(HT_INIT_SIZE_INGREDIENT);
+  HashSet *cache = create_hash_set(HT_INIT_SIZE_INGREDIENT);
 
   // && node->order->arrival_time <= CURR_TIME) {
   while (node != NULL) {
-
-    if (!contains(cache, node->order->recipe->name, node->order->amount)) {
-
+    // printf("cache->n_elements: %d\n", cache->n_elements);
+    if (!contains(cache, create_hash_set_entry(node->order->recipe->name,
+                                               node->order->amount))) {
       bool sent = try_send_order(stock_ht, waiting_queue, truck_queue,
                                  node->order, true);
 
@@ -1099,7 +1101,8 @@ inline void check_waiting_orders(OrderQueue *waiting_queue,
 
         free(node);
       } else {
-        add(cache, node->order->recipe->name, node->order->amount);
+        add(cache, create_hash_set_entry(node->order->recipe->name,
+                                         node->order->amount));
         prev_node = node;
       }
       node = next;
