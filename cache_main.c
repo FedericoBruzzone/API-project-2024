@@ -97,6 +97,106 @@ inline void check_waiting_orders(OrderQueue *, OrderQueue *, StockHT *);
 inline void send_order(StockHT *, Order *, bool, OrderQueue *, Stock **);
 // END UTIL =============================
 
+// ================== TODO CACHE ============================
+// This function are only used in the check_waiting_orders function
+#define HT_INIT_SIZE_ORDER_CACHE 1024
+
+typedef struct HashSetEntry {
+  char *name;
+  int amount;
+} HashSetEntry;
+
+HashSetEntry *create_hash_set_entry(char *name, int amount) {
+  HashSetEntry *entry = (HashSetEntry *)malloc(sizeof(HashSetEntry));
+  entry->name = strdup(name);
+  entry->amount = amount;
+  return entry;
+}
+
+void free_hash_set_entry(HashSetEntry *entry) {
+  free(entry->name);
+  free(entry);
+}
+
+uint32_t hash_hash_set_entry(HashSetEntry *entry, int size) {
+  // Hash all fields of the entry
+  uint32_t hash = hash_string(entry->name, size);
+  hash = (hash * 31) + entry->amount;
+  return hash % size;
+}
+
+typedef struct HashSet {
+  HashSetEntry *table;
+  int size;
+  int n_elements;
+} HashSet;
+
+HashSet *create_hash_set(int size) {
+  HashSet *set = (HashSet *)malloc(sizeof(HashSet));
+  set->size = size;
+  set->n_elements = 0;
+  set->table = (HashSetEntry *)malloc(size * sizeof(HashSetEntry));
+  for (int i = 0; i < size; i++) {
+    set->table[i].name = NULL;
+  }
+  return set;
+}
+
+void free_hash_set(HashSet *set) {
+  for (int i = 0; i < set->size; i++) {
+    if (set->table[i].name != NULL) {
+      free_hash_set_entry(&set->table[i]);
+    }
+  }
+  free(set->table);
+  free(set);
+}
+
+void add(HashSet *set, HashSetEntry *entry);
+void resize(HashSet *set) {
+  HashSet *new_set = create_hash_set(set->size * 2);
+  for (int i = 0; i < set->size; i++) {
+    if (set->table[i].name != NULL) {
+      add(new_set, &set->table[i]);
+    }
+  }
+  free(set->table);
+  set->table = new_set->table;
+  set->size = new_set->size;
+  set->n_elements = new_set->n_elements;
+  free(new_set);
+}
+
+void add(HashSet *set, HashSetEntry *entry) {
+  if ((double)set->n_elements / set->size >= HT_LOAD_FACTOR) {
+    resize(set);
+  }
+
+  uint32_t hash = hash_hash_set_entry(entry, set->size);
+  while (set->table[hash].name != NULL) {
+    hash = (hash + 1) % set->size;
+  }
+  set->table[hash] = *entry;
+  set->n_elements++;
+}
+
+bool contains(HashSet *set, HashSetEntry *entry) {
+  uint32_t hash = hash_hash_set_entry(entry, set->size);
+
+  while (set->table[hash].name != NULL) {
+    if (strcmp(set->table[hash].name, entry->name) == 0 &&
+        set->table[hash].amount <= entry->amount) {
+      return true;
+    }
+
+    hash = (hash + 1) % set->size;
+  }
+
+  return false;
+}
+
+// ================== END TODO CACHE ========================
+
 // RECIPE IMPLEMENTATION ============================
 struct RecipeIngredient {
   char *name;
@@ -979,31 +1079,45 @@ inline void check_waiting_orders(OrderQueue *waiting_queue,
   OrderNode *node = waiting_queue->head;
   OrderNode *prev_node = NULL;
 
+  HashSet *cache = create_hash_set(HT_INIT_SIZE_INGREDIENT);
+
+  // && node->order->arrival_time <= CURR_TIME) {
   while (node != NULL) {
-    bool sent =
-        try_send_order(stock_ht, waiting_queue, truck_queue, node->order, true);
+    // printf("cache->n_elements: %d\n", cache->n_elements);
+    if (!contains(cache, create_hash_set_entry(node->order->recipe->name,
+                                               node->order->amount))) {
+      bool sent = try_send_order(stock_ht, waiting_queue, truck_queue,
+                                 node->order, true);
 
-    OrderNode *next = node->next;
+      OrderNode *next = node->next;
 
-    if (sent) {
-      if (prev_node == NULL) {
-        // Node is the head
-        waiting_queue->head = next;
+      if (sent) {
+        if (prev_node == NULL) {
+          // Node is the head
+          waiting_queue->head = next;
+        } else {
+          prev_node->next = next;
+        }
+
+        if (next == NULL) {
+          // Node is the tail
+          waiting_queue->tail = prev_node;
+        }
+
+        free(node);
       } else {
-        prev_node->next = next;
+        add(cache, create_hash_set_entry(node->order->recipe->name,
+                                         node->order->amount));
+        prev_node = node;
       }
-
-      if (next == NULL) {
-        // Node is the tail
-        waiting_queue->tail = prev_node;
-      }
-
-      free(node);
+      node = next;
     } else {
       prev_node = node;
+      node = node->next;
     }
-    node = next;
   }
+
+  // free_hash_set(cache);
 }
 
 void handle_order(RecipeHT *recipe_ht, StockHT *stock_ht,
