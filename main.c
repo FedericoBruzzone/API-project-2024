@@ -90,22 +90,12 @@ void handle_stock(StockHT *, char *, OrderQueue *, OrderQueue *);
 void handle_order(RecipeHT *, StockHT *, OrderQueue *, OrderQueue *, char *);
 void handle_truck(char *);
 
-inline bool try_send_order(StockHT *, OrderQueue *, OrderQueue *, Order *, bool);
+inline bool try_send_order(StockHT *, OrderQueue *, OrderQueue *, Order *,
+                           bool);
 bool check_missing_ingredients(StockHT *, Order *, Stock **);
 inline void check_waiting_orders(OrderQueue *, OrderQueue *, StockHT *);
 inline void send_order(StockHT *, Order *, bool, OrderQueue *, Stock **);
 // END UTIL =============================
-
-// ================== TODO CACHE ============================
-// This function are only used in the check_waiting_orders function
-typedef struct OrderCacheHT OrderCacheHT;
-double order_cache_ht_load_factor(OrderCacheHT *);
-OrderCacheHT *create_order_cache_ht(int);
-void order_cache_ht_add(OrderCacheHT *, OrderNode *);
-bool order_cache_ht_contains(OrderCacheHT *, OrderNode *);
-void order_cache_ht_resize(OrderCacheHT *);
-void free_order_cache_ht(OrderCacheHT *);
-// ================== END TODO CACHE ========================
 
 // RECIPE IMPLEMENTATION ============================
 struct RecipeIngredient {
@@ -351,7 +341,8 @@ struct StockHT {
   Stock **stocks;
 };
 
-inline StockIngredient *create_stock_ingredient(int quantity, int expiration_date) {
+inline StockIngredient *create_stock_ingredient(int quantity,
+                                                int expiration_date) {
   StockIngredient *ingredient =
       (StockIngredient *)malloc(sizeof(StockIngredient));
   if (ingredient == NULL) {
@@ -709,7 +700,8 @@ inline void order_node_enqueue_by_weight(OrderNode **list, OrderNode *node) {
 
 // TRUCK IMPLEMENTATION ==============================
 
-inline void order_queue_enqueue_by_arrival_time(OrderQueue *queue, OrderNode *node) {
+inline void order_queue_enqueue_by_arrival_time(OrderQueue *queue,
+                                                OrderNode *node) {
   if (queue->tail == NULL) {
     queue->head = node;
     queue->tail = node;
@@ -900,8 +892,8 @@ void handle_stock(StockHT *stock_ht, char *line, OrderQueue *waiting_queue,
 }
 
 inline bool try_send_order(StockHT *stock_ht, OrderQueue *waiting_queue,
-                    OrderQueue *truck_queue, Order *order,
-                    bool is_waiting_order) {
+                           OrderQueue *truck_queue, Order *order,
+                           bool is_waiting_order) {
   if (!is_waiting_order) {
     order->recipe->n_waiting_orders++;
   }
@@ -925,7 +917,7 @@ inline bool try_send_order(StockHT *stock_ht, OrderQueue *waiting_queue,
 }
 
 inline void send_order(StockHT *stock_ht, Order *order, bool is_waiting_order,
-                OrderQueue *truck_queue, Stock **stocks) {
+                       OrderQueue *truck_queue, Stock **stocks) {
   // Remove the ingredients from the stock
   RecipeIngredient *ingredient = order->recipe->ingredients;
   int i = 0;
@@ -1102,8 +1094,10 @@ void free_order_cache_ht(OrderCacheHT *cache) {
   free(cache);
 }
 
-inline void check_waiting_orders(OrderQueue *waiting_queue, OrderQueue *truck_queue,
-                          StockHT *stock_ht) {
+// TODO: Implement cache, we do not need to check ("pere", 2) if we already
+// checked ("pere", 2) and it failed
+inline void check_waiting_orders(OrderQueue *waiting_queue,
+                                 OrderQueue *truck_queue, StockHT *stock_ht) {
   OrderNode *node = waiting_queue->head;
   OrderNode *prev_node = NULL;
 
@@ -1236,4 +1230,3 @@ int main(void) {
   free_order_queue(waiting_queue);
   free_order_queue(truck_queue);
 }
-
