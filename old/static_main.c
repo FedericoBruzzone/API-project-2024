@@ -7,7 +7,7 @@
 // DEFINE ===========================================
 #define LINE_SIZE 512
 #define COMMAND_LEN 17
-#define HT_LOAD_FACTOR 0.70
+#define HT_LOAD_FACTOR 0.75
 #define HT_INIT_SIZE_RECIPE 1024
 #define HT_INIT_SIZE_INGREDIENT 1024
 // END DEFINE =======================================
@@ -30,12 +30,12 @@ inline void recipe_add_ingredient(Recipe *, RecipeIngredient *);
 
 typedef struct RecipeHT RecipeHT;
 RecipeHT *create_recipe_ht(int);
-void free_recipe_ht(RecipeHT *);
-inline void recipe_ht_put(RecipeHT *, Recipe *);
-inline Recipe *recipe_ht_get(RecipeHT *, char *);
-inline void recipe_ht_delete(RecipeHT *, char *);
-inline double recipe_ht_load_factor(RecipeHT *);
-void recipe_ht_resize(RecipeHT *);
+void free_recipe_ht();
+void recipe_ht_put(Recipe *);
+Recipe *recipe_ht_get(char *);
+inline void recipe_ht_delete(char *);
+double recipe_ht_load_factor();
+void recipe_ht_resize();
 // END RECIPE ===========================
 
 // STOCK ============================
@@ -53,13 +53,13 @@ inline void stock_remove_expired_ingredients(Stock *, int);
 inline void stock_remove_ingredient(Stock *, int);
 
 StockHT *create_stock_ht(int);
-void free_stock_ht(StockHT *);
-void stock_ht_put(StockHT *, Stock *);
-inline Stock *stock_ht_get(StockHT *, char *);
-inline double stock_ht_load_factor(StockHT *);
-inline void stock_ht_resize(StockHT *);
+void free_stock_ht();
+void stock_ht_put(Stock *);
+Stock *stock_ht_get(char *);
+double stock_ht_load_factor();
+void stock_ht_resize();
 
-inline Stock *stock_get_or_create(StockHT *, char *);
+inline Stock *stock_get_or_create(char *);
 // END STOCK ============================
 
 // ORDER ===============================
@@ -76,36 +76,62 @@ typedef struct OrderQueue OrderQueue;
 OrderQueue *create_order_queue();
 void free_order_queue(OrderQueue *);
 inline void order_queue_enqueue(OrderQueue *, OrderNode *);
-inline void order_queue_enqueue_by_arrival_time(OrderQueue *, OrderNode *);
-void order_queue_dequeue(OrderQueue *);
+void order_queue_enqueue_by_arrival_time(OrderNode *); // Truck queue
+void truck_order_queue_dequeue();
 // END ORDER ===========================
 
 // UTIL =================================
 inline uint32_t hash_string(char *, int);
 inline char *read_line(FILE *);
 
-void add_recipe(RecipeHT *, char *);
-void remove_recipe(RecipeHT *, char *);
-void handle_stock(StockHT *, char *, OrderQueue *, OrderQueue *);
-void handle_order(RecipeHT *, StockHT *, OrderQueue *, OrderQueue *, char *);
+void add_recipe(char *);
+void remove_recipe(char *);
+void handle_stock(char *);
+void handle_order(char *);
 void handle_truck(char *);
 
-inline bool try_send_order(StockHT *, OrderQueue *, OrderQueue *, Order *, bool);
-bool check_missing_ingredients(StockHT *, Order *, Stock **);
-inline void check_waiting_orders(OrderQueue *, OrderQueue *, StockHT *);
-inline void send_order(StockHT *, Order *, bool, OrderQueue *, Stock **);
+bool try_send_order(Order *, bool);
+bool check_missing_ingredients(Order *, Stock **);
+void check_waiting_orders();
+void send_order(Order *, bool, Stock **);
 // END UTIL =============================
 
-// ================== TODO CACHE ============================
-// This function are only used in the check_waiting_orders function
-typedef struct OrderCacheHT OrderCacheHT;
-double order_cache_ht_load_factor(OrderCacheHT *);
-OrderCacheHT *create_order_cache_ht(int);
-void order_cache_ht_add(OrderCacheHT *, OrderNode *);
-bool order_cache_ht_contains(OrderCacheHT *, OrderNode *);
-void order_cache_ht_resize(OrderCacheHT *);
-void free_order_cache_ht(OrderCacheHT *);
-// ================== END TODO CACHE ========================
+#define MAX_CAKES 5000
+
+typedef struct {
+  char cake_name[50];
+  int max_orderable_quantity;
+} CakeCache;
+
+CakeCache cake_cache[MAX_CAKES];
+int cake_cache_count = 0;
+
+int get_cached_quantity(const char *cake_name) {
+  for (int i = 0; i < cake_cache_count; ++i) {
+    if (strcmp(cake_cache[i].cake_name, cake_name) == 0) {
+      return cake_cache[i].max_orderable_quantity;
+    }
+  }
+  return -1; // Non trovato nella cache
+}
+
+void update_cache(const char *cake_name, int quantity) {
+  for (int i = 0; i < cake_cache_count; ++i) {
+    if (strcmp(cake_cache[i].cake_name, cake_name) == 0) {
+      cake_cache[i].max_orderable_quantity = quantity;
+      return;
+    }
+  }
+  // Aggiungi alla cache se non esiste
+  strcpy(cake_cache[cake_cache_count].cake_name, cake_name);
+  cake_cache[cake_cache_count].max_orderable_quantity = quantity;
+  cake_cache_count++;
+}
+
+static RecipeHT *recipe_ht;
+static StockHT *stock_ht;
+static OrderQueue *waiting_queue;
+static OrderQueue *truck_queue;
 
 // RECIPE IMPLEMENTATION ============================
 struct RecipeIngredient {
@@ -205,9 +231,9 @@ RecipeHT *create_recipe_ht(int size) {
   return ht;
 }
 
-void free_recipe_ht(RecipeHT *ht) {
-  for (int i = 0; i < ht->size; i++) {
-    Recipe *recipe = ht->recipes[i];
+void free_recipe_ht() {
+  for (int i = 0; i < recipe_ht->size; i++) {
+    Recipe *recipe = recipe_ht->recipes[i];
     while (recipe != NULL) {
       Recipe *next = recipe->next;
       free_recipe(recipe);
@@ -215,8 +241,8 @@ void free_recipe_ht(RecipeHT *ht) {
     }
   }
 
-  free(ht->recipes);
-  free(ht);
+  free(recipe_ht->recipes);
+  free(recipe_ht);
 }
 
 inline void recipe_add_ingredient(Recipe *recipe,
@@ -227,9 +253,9 @@ inline void recipe_add_ingredient(Recipe *recipe,
   recipe->ingredients = ingredient;
 }
 
-inline Recipe *recipe_ht_get(RecipeHT *ht, char *name) {
-  uint32_t hash = hash_string(name, ht->size);
-  Recipe *recipe = ht->recipes[hash];
+Recipe *recipe_ht_get(char *name) {
+  uint32_t hash = hash_string(name, recipe_ht->size);
+  Recipe *recipe = recipe_ht->recipes[hash];
 
   if (recipe == NULL) {
     return NULL;
@@ -245,27 +271,27 @@ inline Recipe *recipe_ht_get(RecipeHT *ht, char *name) {
   return NULL;
 }
 
-inline void recipe_ht_put(RecipeHT *ht, Recipe *recipe) {
-  uint32_t hash = hash_string(recipe->name, ht->size);
-  Recipe *curr_recipe = ht->recipes[hash];
+void recipe_ht_put(Recipe *recipe) {
+  uint32_t hash = hash_string(recipe->name, recipe_ht->size);
+  Recipe *curr_recipe = recipe_ht->recipes[hash];
 
   if (curr_recipe == NULL) {
-    ht->recipes[hash] = recipe;
-    ht->n_elements++;
+    recipe_ht->recipes[hash] = recipe;
+    recipe_ht->n_elements++;
     return;
   }
   recipe->next = curr_recipe;
-  ht->recipes[hash] = recipe;
-  ht->n_elements++;
+  recipe_ht->recipes[hash] = recipe;
+  recipe_ht->n_elements++;
 
-  if (recipe_ht_load_factor(ht) >= HT_LOAD_FACTOR) {
-    recipe_ht_resize(ht);
+  if (recipe_ht_load_factor() >= HT_LOAD_FACTOR) {
+    recipe_ht_resize();
   }
 }
 
-void recipe_ht_delete(RecipeHT *ht, char *name) {
-  uint32_t hash = hash_string(name, ht->size);
-  Recipe *curr_recipe = ht->recipes[hash];
+void recipe_ht_delete(char *name) {
+  uint32_t hash = hash_string(name, recipe_ht->size);
+  Recipe *curr_recipe = recipe_ht->recipes[hash];
 
   if (curr_recipe == NULL) {
     printf("non presente\n");
@@ -293,39 +319,37 @@ void recipe_ht_delete(RecipeHT *ht, char *name) {
   }
 
   if (prev_recipe == NULL)
-    ht->recipes[hash] = curr_recipe->next;
+    recipe_ht->recipes[hash] = curr_recipe->next;
   else
     prev_recipe->next = curr_recipe->next;
 
   curr_recipe->next = NULL;
   free_recipe(curr_recipe);
-  ht->n_elements--;
+  recipe_ht->n_elements--;
 
   printf("rimossa\n");
 }
 
-inline double recipe_ht_load_factor(RecipeHT *ht) {
-  return (double)ht->n_elements / ht->size;
+double recipe_ht_load_factor() {
+  return (double)recipe_ht->n_elements / recipe_ht->size;
 }
 
-void recipe_ht_resize(RecipeHT *ht) {
-  RecipeHT *new_ht = create_recipe_ht(ht->size * 2);
+void recipe_ht_resize() {
+  RecipeHT *ht = recipe_ht;
+  recipe_ht = create_recipe_ht(ht->size * 2);
 
   for (int i = 0; i < ht->size; i++) {
     Recipe *recipe = ht->recipes[i];
     while (recipe != NULL) {
       Recipe *next = recipe->next;
       recipe->next = NULL;
-      recipe_ht_put(new_ht, recipe);
+      recipe_ht_put(recipe);
       recipe = next;
     }
   }
 
   free(ht->recipes);
-  ht->recipes = new_ht->recipes;
-  ht->size = new_ht->size;
-  ht->n_elements = new_ht->n_elements;
-  free(new_ht);
+  free(ht);
 }
 
 // END RECIPE IMPLEMENTATION =========================
@@ -351,7 +375,8 @@ struct StockHT {
   Stock **stocks;
 };
 
-inline StockIngredient *create_stock_ingredient(int quantity, int expiration_date) {
+inline StockIngredient *create_stock_ingredient(int quantity,
+                                                int expiration_date) {
   StockIngredient *ingredient =
       (StockIngredient *)malloc(sizeof(StockIngredient));
   if (ingredient == NULL) {
@@ -503,9 +528,9 @@ StockHT *create_stock_ht(int size) {
   return ht;
 }
 
-void free_stock_ht(StockHT *ht) {
-  for (int i = 0; i < ht->size; i++) {
-    Stock *stock = ht->stocks[i];
+void free_stock_ht() {
+  for (int i = 0; i < stock_ht->size; i++) {
+    Stock *stock = stock_ht->stocks[i];
     while (stock != NULL) {
       Stock *next = stock->next;
       free_stock(stock);
@@ -513,32 +538,32 @@ void free_stock_ht(StockHT *ht) {
     }
   }
 
-  free(ht->stocks);
-  free(ht);
+  free(stock_ht->stocks);
+  free(stock_ht);
 }
 
-void stock_ht_put(StockHT *ht, Stock *stock) {
-  uint32_t hash = hash_string(stock->name, ht->size);
-  Stock *curr_stock = ht->stocks[hash];
+void stock_ht_put(Stock *stock) {
+  uint32_t hash = hash_string(stock->name, stock_ht->size);
+  Stock *curr_stock = stock_ht->stocks[hash];
 
   if (curr_stock == NULL) {
-    ht->stocks[hash] = stock;
+    stock_ht->stocks[hash] = stock;
     stock->next = NULL;
-    ht->n_elements++;
+    stock_ht->n_elements++;
     return;
   }
   stock->next = curr_stock;
-  ht->stocks[hash] = stock;
-  ht->n_elements++;
+  stock_ht->stocks[hash] = stock;
+  stock_ht->n_elements++;
 
-  if (stock_ht_load_factor(ht) >= HT_LOAD_FACTOR) {
-    stock_ht_resize(ht);
+  if (stock_ht_load_factor() >= HT_LOAD_FACTOR) {
+    stock_ht_resize();
   }
 }
 
-inline Stock *stock_ht_get(StockHT *ht, char *name) {
-  uint32_t hash = hash_string(name, ht->size);
-  Stock *stock = ht->stocks[hash];
+inline Stock *stock_ht_get(char *name) {
+  uint32_t hash = hash_string(name, stock_ht->size);
+  Stock *stock = stock_ht->stocks[hash];
 
   if (stock == NULL) {
     return NULL;
@@ -554,35 +579,33 @@ inline Stock *stock_ht_get(StockHT *ht, char *name) {
   return NULL;
 }
 
-inline double stock_ht_load_factor(StockHT *ht) {
-  return (double)ht->n_elements / ht->size;
+inline double stock_ht_load_factor() {
+  return (double)stock_ht->n_elements / stock_ht->size;
 }
 
-inline void stock_ht_resize(StockHT *ht) {
-  StockHT *new_ht = create_stock_ht(ht->size * 2);
+inline void stock_ht_resize() {
+  StockHT *ht = stock_ht;
+  stock_ht = create_stock_ht(ht->size * 2);
 
   for (int i = 0; i < ht->size; i++) {
     Stock *stock = ht->stocks[i];
     while (stock != NULL) {
       Stock *next = stock->next;
       stock->next = NULL;
-      stock_ht_put(new_ht, stock);
+      stock_ht_put(stock);
       stock = next;
     }
   }
 
   free(ht->stocks);
-  ht->stocks = new_ht->stocks;
-  ht->size = new_ht->size;
-  ht->n_elements = new_ht->n_elements;
-  free(new_ht);
+  free(ht);
 }
 
-inline Stock *stock_get_or_create(StockHT *ht, char *name) {
-  Stock *stock = stock_ht_get(ht, name);
+inline Stock *stock_get_or_create(char *name) {
+  Stock *stock = stock_ht_get(name);
   if (stock == NULL) {
     stock = create_stock(name);
-    stock_ht_put(ht, stock);
+    stock_ht_put(stock);
   }
   return stock;
 }
@@ -709,15 +732,15 @@ inline void order_node_enqueue_by_weight(OrderNode **list, OrderNode *node) {
 
 // TRUCK IMPLEMENTATION ==============================
 
-inline void order_queue_enqueue_by_arrival_time(OrderQueue *queue, OrderNode *node) {
-  if (queue->tail == NULL) {
-    queue->head = node;
-    queue->tail = node;
+void order_queue_enqueue_by_arrival_time(OrderNode *node) {
+  if (truck_queue->tail == NULL) {
+    truck_queue->head = node;
+    truck_queue->tail = node;
     return;
   }
 
   // Find the correct position to insert the node (by arrival time).
-  OrderNode *curr = queue->head;
+  OrderNode *curr = truck_queue->head;
   OrderNode *prev = NULL;
   while (curr != NULL &&
          curr->order->arrival_time < node->order->arrival_time) {
@@ -726,26 +749,26 @@ inline void order_queue_enqueue_by_arrival_time(OrderQueue *queue, OrderNode *no
   }
 
   if (prev == NULL) {
-    node->next = queue->head;
-    queue->head = node;
+    node->next = truck_queue->head;
+    truck_queue->head = node;
     return;
   }
 
   prev->next = node;
   node->next = curr;
   if (curr == NULL) {
-    queue->tail = node;
+    truck_queue->tail = node;
   }
 }
 
-void order_queue_dequeue(OrderQueue *queue) {
-  if (queue->head == NULL) {
+void truck_order_queue_dequeue() {
+  if (truck_queue->head == NULL) {
     printf("camioncino vuoto\n");
     return;
   }
 
   // Remove order from the list until the truck is full (TRUCK_WEIGHT)
-  OrderNode *node = queue->head;
+  OrderNode *node = truck_queue->head;
   int tmp_weight = 0;
   int n_orders = 0;
   OrderNode *orders = NULL;
@@ -776,10 +799,10 @@ void order_queue_dequeue(OrderQueue *queue) {
     curr_order = next;
   }
 
-  queue->head = node;
-  // If the queue is now empty, update the tail to NULL
-  if (queue->head == NULL) {
-    queue->tail = NULL;
+  truck_queue->head = node;
+  // If the truck_queue is now empty, update the tail to NULL
+  if (truck_queue->head == NULL) {
+    truck_queue->tail = NULL;
   }
 }
 
@@ -817,7 +840,7 @@ inline char *read_line(FILE *stream) {
   return line;
 }
 
-void add_recipe(RecipeHT *ht, char *line) {
+void add_recipe(char *line) {
   char *command = strtok(line, " ");
   if (command == NULL) {
     return;
@@ -828,7 +851,7 @@ void add_recipe(RecipeHT *ht, char *line) {
     return;
   }
 
-  if (recipe_ht_get(ht, recipe_name) != NULL) {
+  if (recipe_ht_get(recipe_name) != NULL) {
     printf("ignorato\n");
     return;
   }
@@ -847,11 +870,11 @@ void add_recipe(RecipeHT *ht, char *line) {
         create_recipe_ingredient(ingredient_name, atoi(ingredient_quantity)));
   }
 
-  recipe_ht_put(ht, recipe);
+  recipe_ht_put(recipe);
   printf("aggiunta\n");
 }
 
-void remove_recipe(RecipeHT *ht, char *line) {
+void remove_recipe(char *line) {
   char *command = strtok(line, " ");
   if (command == NULL) {
     return;
@@ -861,11 +884,10 @@ void remove_recipe(RecipeHT *ht, char *line) {
     return;
   }
 
-  recipe_ht_delete(ht, name);
+  recipe_ht_delete(name);
 }
 
-void handle_stock(StockHT *stock_ht, char *line, OrderQueue *waiting_queue,
-                  OrderQueue *truck_queue) {
+void handle_stock(char *line) {
   char *command = strtok(line, " ");
   if (command == NULL) {
     return;
@@ -887,7 +909,7 @@ void handle_stock(StockHT *stock_ht, char *line, OrderQueue *waiting_queue,
     StockIngredient *ingredient =
         create_stock_ingredient(quantity, expiration_date);
 
-    Stock *stock = stock_get_or_create(stock_ht, stock_name);
+    Stock *stock = stock_get_or_create(stock_name);
 
     if (stock == NULL) {
       return;
@@ -896,36 +918,33 @@ void handle_stock(StockHT *stock_ht, char *line, OrderQueue *waiting_queue,
   }
 
   printf("rifornito\n");
-  check_waiting_orders(waiting_queue, truck_queue, stock_ht);
+  check_waiting_orders();
 }
 
-inline bool try_send_order(StockHT *stock_ht, OrderQueue *waiting_queue,
-                    OrderQueue *truck_queue, Order *order,
-                    bool is_waiting_order) {
+bool try_send_order(Order *order, bool is_waiting_order) {
   if (!is_waiting_order) {
     order->recipe->n_waiting_orders++;
   }
 
   Stock *stocks[order->recipe->n_ingredients];
-  bool missing_ingredients_flag =
-      check_missing_ingredients(stock_ht, order, stocks);
+  bool missing_ingredients_flag = check_missing_ingredients(order, stocks);
 
   if (!missing_ingredients_flag) {
-    send_order(stock_ht, order, is_waiting_order, truck_queue, stocks);
+    send_order(order, is_waiting_order, stocks);
     return true;
   } else {
     // If not from the waiting queue, we should enqueue the order in the
     // waiting
     if (!is_waiting_order) {
-      order_queue_enqueue(waiting_queue, create_order_node(order));
+      order_queue_enqueue(waiting_queue,
+                          create_order_node(order)); // TODO REMOVE
     }
     return false;
   }
   return false;
 }
 
-inline void send_order(StockHT *stock_ht, Order *order, bool is_waiting_order,
-                OrderQueue *truck_queue, Stock **stocks) {
+void send_order(Order *order, bool is_waiting_order, Stock **stocks) {
   // Remove the ingredients from the stock
   RecipeIngredient *ingredient = order->recipe->ingredients;
   int i = 0;
@@ -943,7 +962,7 @@ inline void send_order(StockHT *stock_ht, Order *order, bool is_waiting_order,
   // the order in the truck queue in the right position (by arrival time)
   // (O(n))
   if (is_waiting_order) {
-    order_queue_enqueue_by_arrival_time(truck_queue, node);
+    order_queue_enqueue_by_arrival_time(node);
   } else {
     // Otherwise, we should enqueue the order in the truck queue at the end
     // (O(1))
@@ -952,13 +971,12 @@ inline void send_order(StockHT *stock_ht, Order *order, bool is_waiting_order,
 }
 
 // Check if all ingredients are available
-bool check_missing_ingredients(StockHT *stock_ht, Order *order,
-                               Stock **stocks) {
+bool check_missing_ingredients(Order *order, Stock **stocks) {
   bool missing_ingredients_flag = false;
   int i = 0;
   RecipeIngredient *ingredient = order->recipe->ingredients;
   while (ingredient != NULL) {
-    Stock *stock = stock_ht_get(stock_ht, ingredient->name);
+    Stock *stock = stock_ht_get(ingredient->name);
 
     if (stock != NULL) {
       stock_remove_expired_ingredients(stock, CURR_TIME);
@@ -976,181 +994,79 @@ bool check_missing_ingredients(StockHT *stock_ht, Order *order,
   return missing_ingredients_flag;
 }
 
-struct OrderCacheHT {
-  OrderNode **buckets;
-  int size;
-  int n_elements;
-};
+// void check_waiting_orders() {
+//   OrderNode *node = waiting_queue->head;
+//   OrderNode *prev_node = NULL;
+//
+//   while (node != NULL) {
+//     bool sent = try_send_order(node->order, true);
+//
+//     OrderNode *next = node->next;
+//
+//     if (sent) {
+//       if (prev_node == NULL) {
+//         // Node is the head
+//         waiting_queue->head = next;
+//       } else {
+//         prev_node->next = next;
+//       }
+//
+//       if (next == NULL) {
+//         // Node is the tail
+//         waiting_queue->tail = prev_node;
+//       }
+//
+//       free(node);
+//     } else {
+//       prev_node = node;
+//     }
+//     node = next;
+//   }
+// }
 
-double order_cache_ht_load_factor(OrderCacheHT *cache) {
-  return (double)cache->n_elements / cache->size;
-}
+void check_waiting_orders() {
+  cake_cache_count = 0;
 
-OrderCacheHT *create_order_cache_ht(int size) {
-  OrderCacheHT *cache = (OrderCacheHT *)malloc(sizeof(OrderCacheHT));
-  if (cache == NULL) {
-    return NULL;
-  }
-
-  cache->size = size;
-  cache->n_elements = 0;
-  cache->buckets = (OrderNode **)malloc(cache->size * sizeof(OrderNode *));
-  if (cache->buckets == NULL) {
-    return NULL;
-  }
-  for (int i = 0; i < cache->size; i++) {
-    cache->buckets[i] = NULL;
-  }
-
-  return cache;
-}
-
-void order_cache_ht_add(OrderCacheHT *cache, OrderNode *node) {
-  uint32_t hash = hash_string(node->order->recipe->name, cache->size);
-  OrderNode *curr_node = cache->buckets[hash];
-  OrderNode *prev_node = NULL;
-
-  while (curr_node != NULL) {
-    // Check if a node with the same recipe name already exists
-    if (strcmp(curr_node->order->recipe->name, node->order->recipe->name) ==
-        0) {
-      if (curr_node->order->amount > node->order->amount) {
-        // Replace the existing node if the new one has a lesser amount
-        if (prev_node == NULL) {
-          cache->buckets[hash] = node;
-        } else {
-          prev_node->next = node;
-        }
-        node->next = curr_node->next;
-        free(curr_node); // Free the old node
-        cache->n_elements++;
-      }
-      return;
-    }
-    prev_node = curr_node;
-    curr_node = curr_node->next;
-  }
-
-  // If no existing node with the same recipe name was found, add the new node
-  if (prev_node == NULL) {
-    // No nodes in the bucket, just add the new node
-    cache->buckets[hash] = node;
-  } else {
-    // Add the new node at the end of the list
-    prev_node->next = node;
-  }
-  node->next = NULL;
-  cache->n_elements++;
-
-  // Check if resizing the hash table is needed
-  if (order_cache_ht_load_factor(cache) >= HT_LOAD_FACTOR) {
-    order_cache_ht_resize(cache);
-  }
-}
-
-bool order_cache_ht_contains(OrderCacheHT *cache, OrderNode *node) {
-  uint32_t hash = hash_string(node->order->recipe->name, cache->size);
-  OrderNode *curr_node = cache->buckets[hash];
-
-  if (curr_node == NULL) {
-    return false;
-  }
-
-  while (curr_node != NULL) {
-    if (strcmp(curr_node->order->recipe->name, node->order->recipe->name) ==
-            0 &&
-        curr_node->order->amount >= node->order->amount) {
-      return true;
-    }
-    curr_node = curr_node->next;
-  }
-
-  return false;
-}
-
-void order_cache_ht_resize(OrderCacheHT *cache) {
-  OrderCacheHT *new_cache = create_order_cache_ht(cache->size * 2);
-
-  for (int i = 0; i < cache->size; i++) {
-    OrderNode *node = cache->buckets[i];
-    while (node != NULL) {
-      OrderNode *next = node->next;
-      node->next = NULL;
-      order_cache_ht_add(new_cache, node);
-      node = next;
-    }
-  }
-
-  free(cache->buckets);
-  cache->buckets = new_cache->buckets;
-  cache->size = new_cache->size;
-  cache->n_elements = new_cache->n_elements;
-  free(new_cache);
-}
-
-void free_order_cache_ht(OrderCacheHT *cache) {
-  for (int i = 0; i < cache->size; i++) {
-    OrderNode *node = cache->buckets[i];
-    while (node != NULL) {
-      OrderNode *next = node->next;
-      free(node);
-      node = next;
-    }
-  }
-
-  free(cache->buckets);
-  free(cache);
-}
-
-inline void check_waiting_orders(OrderQueue *waiting_queue, OrderQueue *truck_queue,
-                          StockHT *stock_ht) {
   OrderNode *node = waiting_queue->head;
   OrderNode *prev_node = NULL;
 
-  // Initialize the cache
-  // OrderCacheHT *cache = create_order_cache_ht(HT_INIT_SIZE_RECIPE);
-
-  // && node->order->arrival_time <= CURR_TIME) {
   while (node != NULL) {
+    const char *cake_name = node->order->recipe->name;
+    int order_quantity = node->order->amount;
 
-    // if (order_cache_ht_contains(cache, create_order_node(node->order))) {
-    //   prev_node = node;
-    //   node = node->next;
-    //   continue;
-    // }
+    int cached_quantity = get_cached_quantity(cake_name);
+    if (!(cached_quantity != -1 && order_quantity > cached_quantity)) {
+      bool sent = try_send_order(node->order, true);
 
-    bool sent =
-        try_send_order(stock_ht, waiting_queue, truck_queue, node->order, true);
+      OrderNode *next = node->next;
 
-    OrderNode *next = node->next;
+      if (sent) {
+        if (prev_node == NULL) {
+          // Node is the head
+          waiting_queue->head = next;
+        } else {
+          prev_node->next = next;
+        }
 
-    if (sent) {
-      if (prev_node == NULL) {
-        // Node is the head
-        waiting_queue->head = next;
+        if (next == NULL) {
+          // Node is the tail
+          waiting_queue->tail = prev_node;
+        }
+
+        free(node);
       } else {
-        prev_node->next = next;
+        update_cache(cake_name, order_quantity);
+        prev_node = node;
       }
-
-      if (next == NULL) {
-        // Node is the tail
-        waiting_queue->tail = prev_node;
-      }
-
-      free(node);
+      node = next;
     } else {
-      // order_cache_ht_add(cache, create_order_node(node->order));
       prev_node = node;
+      node = node->next;
     }
-    node = next;
   }
-
-  // free_order_cache_ht(cache);
 }
 
-void handle_order(RecipeHT *recipe_ht, StockHT *stock_ht,
-                  OrderQueue *waiting_queue, OrderQueue *truck_queue,
-                  char *line) {
+void handle_order(char *line) {
   char *command = strtok(line, " ");
   if (command == NULL) {
     return;
@@ -1167,7 +1083,7 @@ void handle_order(RecipeHT *recipe_ht, StockHT *stock_ht,
   }
   int amount = atoi(amount_str);
 
-  Recipe *recipe = recipe_ht_get(recipe_ht, recipe_name);
+  Recipe *recipe = recipe_ht_get(recipe_name);
   if (recipe == NULL) {
     printf("rifiutato\n");
     return;
@@ -1175,7 +1091,7 @@ void handle_order(RecipeHT *recipe_ht, StockHT *stock_ht,
   printf("accettato\n");
 
   Order *order = create_order(recipe, amount, CURR_TIME);
-  try_send_order(stock_ht, waiting_queue, truck_queue, order, false);
+  try_send_order(order, false);
 }
 
 void handle_truck(char *line) {
@@ -1193,31 +1109,31 @@ void handle_truck(char *line) {
 // END UTIL IMPLEMENTATION ==========================
 
 int main(void) {
-  RecipeHT *recipe_ht = create_recipe_ht(HT_INIT_SIZE_RECIPE);
-  StockHT *stock_ht = create_stock_ht(HT_INIT_SIZE_INGREDIENT);
-  OrderQueue *waiting_queue = create_order_queue();
-  OrderQueue *truck_queue = create_order_queue();
+  recipe_ht = create_recipe_ht(HT_INIT_SIZE_RECIPE);
+  stock_ht = create_stock_ht(HT_INIT_SIZE_INGREDIENT);
+  waiting_queue = create_order_queue();
+  truck_queue = create_order_queue();
 
   char command[4];
   char *line;
 
   while ((line = read_line(stdin)) != NULL) {
     if (CURR_TIME != 0 && TRUCK_TIME != 0 && CURR_TIME % TRUCK_TIME == 0) {
-      order_queue_dequeue(truck_queue);
+      truck_order_queue_dequeue();
     }
 
     if (sscanf(line, "%3s", command) == 1) {
       if (strcmp(command, "agg") == 0) {
-        add_recipe(recipe_ht, line);
+        add_recipe(line);
         CURR_TIME++;
       } else if (strcmp(command, "rim") == 0) {
-        remove_recipe(recipe_ht, line);
+        remove_recipe(line);
         CURR_TIME++;
       } else if (strcmp(command, "rif") == 0) {
-        handle_stock(stock_ht, line, waiting_queue, truck_queue);
+        handle_stock(line);
         CURR_TIME++;
       } else if (strcmp(command, "ord") == 0) {
-        handle_order(recipe_ht, stock_ht, waiting_queue, truck_queue, line);
+        handle_order(line);
         CURR_TIME++;
       } else {
         handle_truck(line);
@@ -1228,12 +1144,11 @@ int main(void) {
   }
 
   if (CURR_TIME != 0 && TRUCK_TIME != 0 && CURR_TIME % TRUCK_TIME == 0) {
-    order_queue_dequeue(truck_queue);
+    truck_order_queue_dequeue();
   }
 
-  free_recipe_ht(recipe_ht);
-  free_stock_ht(stock_ht);
+  free_recipe_ht();
+  free_stock_ht();
   free_order_queue(waiting_queue);
   free_order_queue(truck_queue);
 }
-
