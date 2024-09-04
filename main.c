@@ -7,8 +7,8 @@
 // DEFINE ===========================================
 #define LINE_SIZE 512
 #define COMMAND_LEN 17
-#define HT_LOAD_FACTOR 0.70
-#define HT_INIT_SIZE_RECIPE 1024
+#define HT_LOAD_FACTOR 0.90
+#define HT_INIT_SIZE_RECIPE 512
 #define HT_INIT_SIZE_INGREDIENT 1024
 // END DEFINE =======================================
 
@@ -81,7 +81,7 @@ void order_queue_dequeue(OrderQueue *);
 // END ORDER ===========================
 
 // UTIL =================================
-inline uint32_t hash_string(char *, int);
+inline uint32_t fnv1a_hash_string(const char *, int);
 inline char *read_line(FILE *);
 
 void add_recipe(RecipeHT *, char *);
@@ -90,12 +90,22 @@ void handle_stock(StockHT *, char *, OrderQueue *, OrderQueue *);
 void handle_order(RecipeHT *, StockHT *, OrderQueue *, OrderQueue *, char *);
 void handle_truck(char *);
 
-inline bool try_send_order(StockHT *, OrderQueue *, OrderQueue *, Order *,
-                           bool);
+inline bool try_send_order(StockHT *, OrderQueue *, OrderQueue *, Order *, bool);
 bool check_missing_ingredients(StockHT *, Order *, Stock **);
 inline void check_waiting_orders(OrderQueue *, OrderQueue *, StockHT *);
 inline void send_order(StockHT *, Order *, bool, OrderQueue *, Stock **);
 // END UTIL =============================
+
+// ================== TODO CACHE ============================
+// This function are only used in the check_waiting_orders function
+typedef struct OrderCacheHT OrderCacheHT;
+double order_cache_ht_load_factor(OrderCacheHT *);
+OrderCacheHT *create_order_cache_ht(int);
+void order_cache_ht_add(OrderCacheHT *, OrderNode *);
+bool order_cache_ht_contains(OrderCacheHT *, OrderNode *);
+void order_cache_ht_resize(OrderCacheHT *);
+void free_order_cache_ht(OrderCacheHT *);
+// ================== END TODO CACHE ========================
 
 // RECIPE IMPLEMENTATION ============================
 struct RecipeIngredient {
@@ -218,7 +228,7 @@ inline void recipe_add_ingredient(Recipe *recipe,
 }
 
 inline Recipe *recipe_ht_get(RecipeHT *ht, char *name) {
-  uint32_t hash = hash_string(name, ht->size);
+  uint32_t hash = fnv1a_hash_string(name, ht->size);
   Recipe *recipe = ht->recipes[hash];
 
   if (recipe == NULL) {
@@ -236,7 +246,7 @@ inline Recipe *recipe_ht_get(RecipeHT *ht, char *name) {
 }
 
 inline void recipe_ht_put(RecipeHT *ht, Recipe *recipe) {
-  uint32_t hash = hash_string(recipe->name, ht->size);
+  uint32_t hash = fnv1a_hash_string(recipe->name, ht->size);
   Recipe *curr_recipe = ht->recipes[hash];
 
   if (curr_recipe == NULL) {
@@ -254,7 +264,7 @@ inline void recipe_ht_put(RecipeHT *ht, Recipe *recipe) {
 }
 
 void recipe_ht_delete(RecipeHT *ht, char *name) {
-  uint32_t hash = hash_string(name, ht->size);
+  uint32_t hash = fnv1a_hash_string(name, ht->size);
   Recipe *curr_recipe = ht->recipes[hash];
 
   if (curr_recipe == NULL) {
@@ -341,8 +351,7 @@ struct StockHT {
   Stock **stocks;
 };
 
-inline StockIngredient *create_stock_ingredient(int quantity,
-                                                int expiration_date) {
+inline StockIngredient *create_stock_ingredient(int quantity, int expiration_date) {
   StockIngredient *ingredient =
       (StockIngredient *)malloc(sizeof(StockIngredient));
   if (ingredient == NULL) {
@@ -509,7 +518,7 @@ void free_stock_ht(StockHT *ht) {
 }
 
 void stock_ht_put(StockHT *ht, Stock *stock) {
-  uint32_t hash = hash_string(stock->name, ht->size);
+  uint32_t hash = fnv1a_hash_string(stock->name, ht->size);
   Stock *curr_stock = ht->stocks[hash];
 
   if (curr_stock == NULL) {
@@ -528,7 +537,7 @@ void stock_ht_put(StockHT *ht, Stock *stock) {
 }
 
 inline Stock *stock_ht_get(StockHT *ht, char *name) {
-  uint32_t hash = hash_string(name, ht->size);
+  uint32_t hash = fnv1a_hash_string(name, ht->size);
   Stock *stock = ht->stocks[hash];
 
   if (stock == NULL) {
@@ -700,8 +709,7 @@ inline void order_node_enqueue_by_weight(OrderNode **list, OrderNode *node) {
 
 // TRUCK IMPLEMENTATION ==============================
 
-inline void order_queue_enqueue_by_arrival_time(OrderQueue *queue,
-                                                OrderNode *node) {
+inline void order_queue_enqueue_by_arrival_time(OrderQueue *queue, OrderNode *node) {
   if (queue->tail == NULL) {
     queue->head = node;
     queue->tail = node;
@@ -781,14 +789,33 @@ void set_truck_weight(int weight) { TRUCK_WEIGHT = weight; }
 // END TRUCK IMPLEMENTATION =========================
 
 // UTIL IMPLEMENTATION ==============================
-inline uint32_t hash_string(char *str, int size) {
-  unsigned long hash = 5381;
-  int c;
-  while ((c = *str++)) {
-    hash = ((hash << 5) + hash) + c; /* hash * 33 + c */
-  }
-  return hash % size;
+inline uint32_t fnv1a_hash_string(const char *str, int size) {
+    uint32_t hash = 2166136261U;
+    const unsigned char *s = (const unsigned char *)str;
+
+    while (*s) {
+        hash ^= *s++;
+        hash *= 16777619;
+
+        if (*s) {
+            hash ^= *s++;
+            hash *= 16777619;
+        }
+
+        if (*s) {
+            hash ^= *s++;
+            hash *= 16777619;
+        }
+
+        if (*s) {
+            hash ^= *s++;
+            hash *= 16777619;
+        }
+    }
+
+    return hash & (size - 1); // Assuming size is a power of 2
 }
+
 
 inline char *read_line(FILE *stream) {
   char *line = NULL;
@@ -892,8 +919,8 @@ void handle_stock(StockHT *stock_ht, char *line, OrderQueue *waiting_queue,
 }
 
 inline bool try_send_order(StockHT *stock_ht, OrderQueue *waiting_queue,
-                           OrderQueue *truck_queue, Order *order,
-                           bool is_waiting_order) {
+                    OrderQueue *truck_queue, Order *order,
+                    bool is_waiting_order) {
   if (!is_waiting_order) {
     order->recipe->n_waiting_orders++;
   }
@@ -917,7 +944,7 @@ inline bool try_send_order(StockHT *stock_ht, OrderQueue *waiting_queue,
 }
 
 inline void send_order(StockHT *stock_ht, Order *order, bool is_waiting_order,
-                       OrderQueue *truck_queue, Stock **stocks) {
+                OrderQueue *truck_queue, Stock **stocks) {
   // Remove the ingredients from the stock
   RecipeIngredient *ingredient = order->recipe->ingredients;
   int i = 0;
@@ -998,7 +1025,7 @@ OrderCacheHT *create_order_cache_ht(int size) {
 }
 
 void order_cache_ht_add(OrderCacheHT *cache, OrderNode *node) {
-  uint32_t hash = hash_string(node->order->recipe->name, cache->size);
+  uint32_t hash = fnv1a_hash_string(node->order->recipe->name, cache->size);
   OrderNode *curr_node = cache->buckets[hash];
   OrderNode *prev_node = NULL;
 
@@ -1041,7 +1068,7 @@ void order_cache_ht_add(OrderCacheHT *cache, OrderNode *node) {
 }
 
 bool order_cache_ht_contains(OrderCacheHT *cache, OrderNode *node) {
-  uint32_t hash = hash_string(node->order->recipe->name, cache->size);
+  uint32_t hash = fnv1a_hash_string(node->order->recipe->name, cache->size);
   OrderNode *curr_node = cache->buckets[hash];
 
   if (curr_node == NULL) {
@@ -1094,10 +1121,8 @@ void free_order_cache_ht(OrderCacheHT *cache) {
   free(cache);
 }
 
-// TODO: Implement cache, we do not need to check ("pere", 2) if we already
-// checked ("pere", 2) and it failed
-inline void check_waiting_orders(OrderQueue *waiting_queue,
-                                 OrderQueue *truck_queue, StockHT *stock_ht) {
+inline void check_waiting_orders(OrderQueue *waiting_queue, OrderQueue *truck_queue,
+                          StockHT *stock_ht) {
   OrderNode *node = waiting_queue->head;
   OrderNode *prev_node = NULL;
 
@@ -1230,3 +1255,4 @@ int main(void) {
   free_order_queue(waiting_queue);
   free_order_queue(truck_queue);
 }
+
